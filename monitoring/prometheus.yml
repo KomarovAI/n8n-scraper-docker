@@ -47,6 +47,22 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 30s
 
+  # ML Service metrics (AI Router)
+  - job_name: 'ml-service'
+    static_configs:
+      - targets: ['ml-service:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    metric_relabel_configs:
+      # Track Gemini API usage
+      - source_labels: [__name__]
+        regex: 'gemini_.*'
+        action: keep
+      # Track optimization metrics
+      - source_labels: [__name__]
+        regex: 'ml_.*'
+        action: keep
+
   # n8n metrics (if exposed)
   - job_name: 'n8n'
     static_configs:
