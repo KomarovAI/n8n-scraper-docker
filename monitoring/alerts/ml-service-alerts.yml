@@ -1,0 +1,108 @@
+groups:
+  - name: ml_service_alerts
+    interval: 30s
+    rules:
+      # Gemini API usage alerts
+      - alert: GeminiDailyLimitApproaching
+        expr: gemini_daily_requests > 1200
+        for: 5m
+        labels:
+          severity: warning
+          component: ml-service
+        annotations:
+          summary: "Gemini API usage at 80% of daily limit"
+          description: "Current usage: {{ $value }}/1500 requests. Auto-fallback to sklearn activated."
+
+      - alert: GeminiDailyLimitExceeded
+        expr: gemini_daily_requests > 1500
+        for: 1m
+        labels:
+          severity: critical
+          component: ml-service
+        annotations:
+          summary: "Gemini API daily limit exceeded"
+          description: "Usage: {{ $value }}/1500. All requests fallback to sklearn."
+
+      - alert: GeminiRateLimitHit
+        expr: rate(gemini_rate_limit_errors_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: ml-service
+        annotations:
+          summary: "Gemini API rate limit errors detected"
+          description: "Rate limit hit {{ $value }} times in last 5 minutes."
+
+      # Cache performance alerts
+      - alert: CacheHitRateLow
+        expr: ml_cache_hit_rate < 0.70
+        for: 10m
+        labels:
+          severity: warning
+          component: ml-service
+        annotations:
+          summary: "ML service cache hit rate below 70%"
+          description: "Current hit rate: {{ $value | humanizePercentage }}. Expected: >90% after warmup."
+
+      - alert: RedisConnectionFailed
+        expr: ml_redis_connection_errors_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: ml-service
+        annotations:
+          summary: "ML service cannot connect to Redis"
+          description: "Cache unavailable. All requests bypass cache (increased latency)."
+
+      # ML service health alerts
+      - alert: MLServiceDown
+        expr: up{job="ml-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: ml-service
+        annotations:
+          summary: "ML service is down"
+          description: "Scraping strategy selection unavailable. Using fallback methods."
+
+      - alert: MLServiceHighLatency
+        expr: ml_prediction_duration_seconds{quantile="0.95"} > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: ml-service
+        annotations:
+          summary: "ML service latency high"
+          description: "P95 latency: {{ $value }}s. Expected: <100ms for cached, <500ms for Gemini."
+
+      # Model performance alerts
+      - alert: SklearnConfidenceLow
+        expr: avg(ml_sklearn_confidence) < 0.60
+        for: 15m
+        labels:
+          severity: info
+          component: ml-service
+        annotations:
+          summary: "Sklearn model confidence low"
+          description: "Average confidence: {{ $value | humanizePercentage }}. Consider retraining with more data."
+
+      - alert: GeminiUsageSpike
+        expr: rate(ml_requests_total{source="gemini"}[5m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: ml-service
+        annotations:
+          summary: "Gemini usage spike detected"
+          description: "Gemini calls increased to {{ $value | humanizePercentage }} (expected: <1%). Check cache and sklearn performance."
+
+      # Optimization effectiveness alerts
+      - alert: OptimizationDegraded
+        expr: ml_optimization_reduction_factor < 50
+        for: 15m
+        labels:
+          severity: warning
+          component: ml-service
+        annotations:
+          summary: "ML optimization effectiveness degraded"
+          description: "Current reduction: {{ $value }}x (expected: >100x). Check cache hit rate and rule-based coverage."

@@ -9,30 +9,33 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # PostgreSQL for data storage
   postgres:
     image: postgres:16-alpine
     container_name: n8n-postgres
     environment:
-      POSTGRES_DB: scraper_db
-      POSTGRES_USER: scraper_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme123}
+      POSTGRES_DB: ${POSTGRES_DB:-scraper_db}
+      POSTGRES_USER: ${POSTGRES_USER:-scraper_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./backups:/backups
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scraper_user"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scraper_user}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # TOR proxy for anonymity
   tor:
@@ -44,6 +47,70 @@ services:
     environment:
       TOR_NewCircuitPeriod: 60
       TOR_MaxCircuitDirtiness: 300
+      TOR_CONTROL_PASSWORD: ${TOR_CONTROL_PASSWORD:?TOR_CONTROL_PASSWORD must be set in .env file}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--socks5", "localhost:9050", "https://check.torproject.org/api/ip"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # Ollama for local LLM inference (100% FREE)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: n8n-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0:11434
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Note: GPU is optional, CPU-only works fine for smaller models
+
+  # ML Service for scraping strategy selection
+  ml-service:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    container_name: n8n-ml-service
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./ml:/app
+      - ml-models:/app/models
+    depends_on:
+      ollama:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
   # Prometheus for metrics collection
@@ -59,11 +126,13 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-admin-api'
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:9090/-/healthy"]
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9090/-/healthy"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
   # Grafana for visualization
   grafana:
@@ -72,13 +141,16 @@ services:
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set in .env file}
       GF_INSTALL_PLUGINS: redis-datasource
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
     depends_on:
       - prometheus
+    restart: unless-stopped
 
   # n8n workflow automation
   n8n:
@@ -88,32 +160,56 @@ services:
       - "5678:5678"
     environment:
       N8N_BASIC_AUTH_ACTIVE: true
-      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-changeme}
+      N8N_BASIC_AUTH_USER: ${N8N_USER:?N8N_USER must be set in .env file}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:?N8N_PASSWORD must be set in .env file}
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: scraper_db
-      DB_POSTGRESDB_USER: scraper_user
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-changeme123}
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-scraper_db}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-scraper_user}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: true
+      N8N_METRICS: true
+      N8N_DIAGNOSTICS_ENABLED: false
+      # ML Service endpoint for n8n
+      ML_SERVICE_URL: http://ml-service:8000
     volumes:
       - n8n-data:/home/node/.n8n
       - ./workflows:/workflows
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ml-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
 volumes:
   redis-data:
+    driver: local
   postgres-data:
+    driver: local
   prometheus-data:
+    driver: local
   grafana-data:
+    driver: local
   n8n-data:
+    driver: local
+  ollama-data:
+    driver: local
+  ml-models:
+    driver: local
 
 networks:
   default:
     name: n8n-scraper-network
+    driver: bridge

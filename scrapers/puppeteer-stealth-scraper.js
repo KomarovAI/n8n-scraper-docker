@@ -3,10 +3,8 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createCursor } = require('ghost-cursor');
 const winston = require('winston');
 
-// Configure stealth plugin
 puppeteer.use(StealthPlugin());
 
-// Configure logger
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -48,11 +46,9 @@ class PuppeteerStealthScraper {
         '--disable-blink-features=AutomationControlled',
       ]
     };
-
     if (this.options.proxy) {
       launchOptions.args.push(`--proxy-server=${this.options.proxy}`);
     }
-
     this.browser = await puppeteer.launch(launchOptions);
     logger.info('Browser launched successfully');
     return this.browser;
@@ -62,58 +58,31 @@ class PuppeteerStealthScraper {
     if (!this.browser) {
       await this.launch();
     }
-
     const page = await this.browser.newPage();
-    
     try {
-      // Set viewport
       await page.setViewport(this.options.viewport);
-
-      // Set user agent
       await page.setUserAgent(this.options.userAgent);
-
-      // Inject anti-detection scripts
       await page.evaluateOnNewDocument(() => {
-        // Override navigator.webdriver
-        Object.defineProperty(navigator, 'webdriver', {
-          get: () => undefined
-        });
-
-        // Override plugins
-        Object.defineProperty(navigator, 'plugins', {
-          get: () => [1, 2, 3, 4, 5]
-        });
-
-        // Override languages
-        Object.defineProperty(navigator, 'languages', {
-          get: () => ['en-US', 'en']
-        });
-
-        // Canvas fingerprinting randomization
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
         HTMLCanvasElement.prototype.toDataURL = function() {
-          // Add slight randomization
           if (Math.random() > 0.99) {
             return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg';
           }
           return originalToDataURL.apply(this, arguments);
         };
       });
-
       logger.info(`Navigating to ${url}`);
       await page.goto(url, {
         waitUntil: 'networkidle2',
         timeout: this.options.timeout
       });
-
-      // Human-like cursor movements
       const cursor = createCursor(page);
       await cursor.move(Math.random() * 500 + 100, Math.random() * 500 + 100);
-      
-      // Random delay to simulate human behavior
-      await page.waitForTimeout(Math.random() * 2000 + 1000);
-
-      // Extract page content
+      // Modern replacement for deprecated waitForTimeout()
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1000));
       const content = await page.evaluate(() => {
         return {
           title: document.title,
@@ -123,21 +92,11 @@ class PuppeteerStealthScraper {
           timestamp: new Date().toISOString()
         };
       });
-
       logger.info(`Successfully scraped ${url}`);
-      return {
-        success: true,
-        data: content,
-        error: null
-      };
-
+      return { success: true, data: content, error: null };
     } catch (error) {
       logger.error(`Failed to scrape ${url}: ${error.message}`);
-      return {
-        success: false,
-        data: null,
-        error: error.message
-      };
+      return { success: false, data: null, error: error.message };
     } finally {
       await page.close();
     }
@@ -151,24 +110,17 @@ class PuppeteerStealthScraper {
   }
 }
 
-// Example usage
 if (require.main === module) {
   (async () => {
-    const scraper = new PuppeteerStealthScraper({
-      headless: true,
-      timeout: 30000
-    });
-
+    const scraper = new PuppeteerStealthScraper({ headless: true, timeout: 30000 });
     const urls = [
       'https://example.com',
       'https://httpbin.org/headers'
     ];
-
     for (const url of urls) {
       const result = await scraper.scrape(url);
       console.log(JSON.stringify(result, null, 2));
     }
-
     await scraper.close();
   })();
 }

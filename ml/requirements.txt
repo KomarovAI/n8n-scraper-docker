@@ -1,0 +1,25 @@
+# FastAPI & server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# ML & AI (100% free)
+scikit-learn==1.3.2
+joblib==1.3.2
+numpy==1.26.2
+
+# Google Gemini SDK (FREE tier: 1500 req/day)
+google-generativeai==0.3.2
+
+# HTTP client
+aiohttp==3.9.1
+
+# Redis (async) for caching
+redis[hiredis]==5.0.1
+
+# Logging
+loguru==0.7.2
+
+# Optional: Hugging Face (free tier)
+# transformers==4.35.2
+# torch==2.1.1  # For local model inference
