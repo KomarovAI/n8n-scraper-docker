@@ -53,7 +53,7 @@ jobs:
       
       - name: Security audit dependencies
         run: |
-          pip install pip-audit
+          pip install pip-audit pytest-xdist
           pip-audit --desc --format json -o pip-audit-results.json || true
           pip-audit --desc || true
       
@@ -66,15 +66,46 @@ jobs:
             actual-freeze.txt
             pip-audit-results.json
       
-      - name: Run Python tests
+      - name: Run Python tests (optimized)
         run: |
-          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
+          pytest tests/ \
+            -v \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=term \
+            --cov-report=html \
+            --cov-fail-under=80 \
+            --junitxml=pytest-results.xml \
+            -n auto \
+            --maxfail=3 \
+            --tb=short
+        timeout-minutes: 20
+        continue-on-error: false
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: |
+            pytest-results.xml
+            htmlcov/
+            coverage.xml
       
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
+          check-latest: true
+          registry-url: 'https://registry.npmjs.org'
+      
+      - name: Verify Node installation
+        run: |
+          node --version
+          npm --version
+          echo "Node modules cache location:"
+          npm config get cache
       
       - name: Install Node dependencies
         run: npm ci
@@ -108,7 +139,7 @@ jobs:
       
       - name: SLSA Provenance
         uses: slsa-framework/github-actions-build@v2
-
+      
       - name: Slack notification on failure
         if: failure()
         uses: rtCamp/action-slack-notify@v2
