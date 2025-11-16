@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
       
       - name: Setup Python
         uses: actions/setup-python@v6.0.0
@@ -25,6 +28,7 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-lock.txt
+          check-latest: true
       
       - name: Install dependencies
         run: |
