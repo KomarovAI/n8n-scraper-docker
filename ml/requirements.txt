@@ -8,8 +8,14 @@ scikit-learn==1.3.2
 joblib==1.3.2
 numpy==1.26.2
 
+# Google Gemini SDK (FREE tier: 1500 req/day)
+google-generativeai==0.3.2
+
 # HTTP client
 aiohttp==3.9.1
+
+# Redis (async) for caching
+redis[hiredis]==5.0.1
 
 # Logging
 loguru==0.7.2
