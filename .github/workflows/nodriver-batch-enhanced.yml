@@ -1,0 +1,52 @@
+name: Nodriver Batch Scraper (Enhanced)
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'JSON array of URL objects'
+        required: true
+      batchId:
+        description: 'Batch ID for tracking'
+        required: true
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install nodriver pydantic aiohttp cheerio beautifulsoup4 lxml
+      
+      - name: Run Enhanced Nodriver Scraper
+        env:
+          URLS_JSON: ${{ github.event.inputs.urls }}
+          BATCH_ID: ${{ github.event.inputs.batchId }}
+        run: |
+          python scripts/nodriver_batch_scraper.py
+      
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-results-batch-${{ github.event.inputs.batchId }}
+          path: results.json
+          retention-days: 1
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-logs-batch-${{ github.event.inputs.batchId }}
+          path: scraper.log
+          retention-days: 1
