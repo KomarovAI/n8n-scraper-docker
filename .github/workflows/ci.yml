@@ -148,16 +148,60 @@ jobs:
             npm-audit-results.json
             package-lock.json
       
-      - name: Run npm audit
-        run: npm audit --audit-level=high || true
-      
-      - name: Check for secrets leakage
-        uses: trufflesecurity/trufflehog@main
+      - name: Run npm audit (strict mode)
+        run: |
+          echo "=== npm audit (production dependencies) ==="
+          npm audit --production --audit-level=moderate --json > npm-audit-prod.json || true
+          npm audit --production --audit-level=high || true
+          echo -e "\n=== Checking CRITICAL vulnerabilities ==="
+          if npm audit --production --audit-level=critical > /dev/null 2>&1; then
+            echo "✅ No CRITICAL vulnerabilities"
+          else
+            echo "❌ CRITICAL vulnerabilities found!"
+            npm audit --production --audit-level=critical
+            exit 1
+          fi
+          echo -e "\n=== Vulnerability summary ==="
+          npm audit --production || true
+        continue-on-error: false
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-detailed
+          path: npm-audit-prod.json
+
+      - name: Check for secrets leakage (hardened)
+        uses: trufflesecurity/trufflehog@v3.82.13
         with:
           path: .
-          scan_depth: 50
+          scan_depth: 100
           redact: true
-      
+          fail: true
+          extra_args: "--json --no-update --entropy=true --regex --max_depth=10"
+        continue-on-error: false
+
+      - name: Create trufflehog allowlist
+        run: |
+          cat > .trufflehog.yml << 'EOF'
+          # Trufflehog configuration
+          exclude:
+            paths:
+              - "**/*.md"
+              - "**/test/**"
+              - "**/*.example"
+          EOF
+
+      - name: Additional secrets scan (extended)
+        run: |
+          echo "=== Scanning for common secret patterns ==="
+          grep -r -i "password\s*=\s*['\"].*['\"]" . --exclude-dir={node_modules,.git} || echo "No hardcoded passwords"
+          grep -r -i "api[_-]key\s*=\s*['\"].*['\"]" . --exclude-dir={node_modules,.git} || echo "No API keys"
+          grep -r -i "secret\s*=\s*['\"].*['\"]" . --exclude-dir={node_modules,.git} || echo "No secrets"
+          find . -name "*.pem" -o -name "*.key" -o -name "id_rsa*" | grep -v node_modules || echo "No private keys"
+          grep -r "AKIA[0-9A-Z]{16}" . --exclude-dir={node_modules,.git} && exit 1 || echo "No AWS keys"
+
       - name: Run JavaScript tests
         run: npm test
       
