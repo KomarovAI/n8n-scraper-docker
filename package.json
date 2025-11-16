@@ -5,6 +5,10 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{js,json,md}\"",
+    "format:check": "prettier --check \"**/*.{js,json,md}\"",
     "scrape:stealth": "node scrapers/puppeteer-stealth-scraper.js",
     "scrape:undetected": "python scrapers/undetected-chrome-scraper.py"
   },
@@ -22,7 +26,7 @@
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "ghost-cursor": "^1.1.20",
-    "axios": "^1.6.0",
+    "axios": "^1.7.0",
     "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.3.1",
     "winston": "^3.11.0",
@@ -32,6 +36,8 @@
   "devDependencies": {
     "jest": "^29.7.0",
     "eslint": "^8.54.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.1.0"
   },
   "engines": {
