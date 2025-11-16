@@ -1,13 +1,17 @@
 {
   "name": "n8n-scraper-scripts",
-  "version": "1.0.0",
-  "description": "Scraping scripts for N8N workflows",
+  "version": "2.0.0",
+  "description": "Production-ready web scraping scripts for N8N",
   "scripts": {
-    "scrape:playwright": "node playwright_scraper.js"
+    "test": "jest --coverage"
   },
   "dependencies": {
-    "playwright": "^1.40.0",
-    "playwright-extra": "^4.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
