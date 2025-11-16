@@ -68,7 +68,7 @@ jobs:
         uses: actions/checkout@71cf2267d89c5cb81562390fa70a37fa40b1305e  # v6.pre.beta
 
       - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8  # v4.0.2
+        uses: actions/setup-node@dda4788290998366da86b6a4f497909644397bb2  # v4.0.2
         with:
           node-version: '18'
 
