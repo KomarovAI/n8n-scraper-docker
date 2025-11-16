@@ -202,15 +202,82 @@ jobs:
           find . -name "*.pem" -o -name "*.key" -o -name "id_rsa*" | grep -v node_modules || echo "No private keys"
           grep -r "AKIA[0-9A-Z]{16}" . --exclude-dir={node_modules,.git} && exit 1 || echo "No AWS keys"
 
-      - name: Run JavaScript tests
-        run: npm test
-      
-      - name: Upload workflow artifacts
+      - name: Run JavaScript tests (optimized)
+        run: |
+          echo "=== Running Jest tests with coverage ==="
+          npm test -- \
+            --coverage \
+            --coverageReporters=json \
+            --coverageReporters=lcov \
+            --coverageReporters=text \
+            --ci \
+            --maxWorkers=2 \
+            --bail=3 \
+            --json --outputFile=jest-results.json || true
+          
+          echo -e "\n=== Checking coverage threshold ==="
+          npm test -- --coverage --coverageThreshold='{"global":{"branches":80,"functions":80,"lines":80,"statements":80}}'
+        timeout-minutes: 15
+        continue-on-error: false
+        env:
+          NODE_ENV: test
+          CI: true
+
+      - name: Upload Jest results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: ./dist || ./build || ./out || ./coverage.xml
-      
+          name: jest-results
+          path: |
+            jest-results.json
+            coverage/
+            coverage/lcov.info
+
+      - name: Upload test coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: javascript
+          name: codecov-js
+
+      - name: Check for build artifacts
+        id: check-artifacts
+        run: |
+          if [ -d "./dist" ]; then
+            echo "artifacts_exist=true" >> $GITHUB_OUTPUT
+            echo "artifact_path=./dist" >> $GITHUB_OUTPUT
+          elif [ -d "./build" ]; then
+            echo "artifacts_exist=true" >> $GITHUB_OUTPUT
+            echo "artifact_path=./build" >> $GITHUB_OUTPUT
+          elif [ -d "./out" ]; then
+            echo "artifacts_exist=true" >> $GITHUB_OUTPUT
+            echo "artifact_path=./out" >> $GITHUB_OUTPUT
+          else
+            echo "artifacts_exist=false" >> $GITHUB_OUTPUT
+            echo "WARNING: No build artifacts found"
+          fi
+
+      - name: Upload build artifacts
+        if: steps.check-artifacts.outputs.artifacts_exist == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: ${{ steps.check-artifacts.outputs.artifact_path }}
+          retention-days: 30
+          compression-level: 6
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.xml
+            htmlcov/
+            coverage/
+          retention-days: 14
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         if: always()
