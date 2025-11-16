@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
 
       - name: Run Trivy vulnerability scanner (filesystem)
-        uses: aquasecurity/trivy-action@fd25fed6972e341ff0007ddb61f77e88103953c2  # v0.21.0
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # v0.33.1
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -52,7 +52,7 @@ jobs:
           - n8nio/n8n:latest
     steps:
       - name: Run Trivy vulnerability scanner (Docker image)
-        uses: aquasecurity/trivy-action@fd25fed6972e341ff0007ddb61f77e88103953c2  # v0.21.0
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # v0.33.1
         with:
           scan-type: 'image'
           image-ref: ${{ matrix.image }}
