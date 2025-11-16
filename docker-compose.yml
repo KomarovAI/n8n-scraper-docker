@@ -56,6 +56,63 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Ollama for local LLM inference (100% FREE)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: n8n-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0:11434
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Note: GPU is optional, CPU-only works fine for smaller models
+
+  # ML Service for scraping strategy selection
+  ml-service:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    container_name: n8n-ml-service
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./ml:/app
+      - ml-models:/app/models
+    depends_on:
+      ollama:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
   # Prometheus for metrics collection
   prometheus:
     image: prom/prometheus:latest
@@ -116,6 +173,8 @@ services:
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: true
       N8N_METRICS: true
       N8N_DIAGNOSTICS_ENABLED: false
+      # ML Service endpoint for n8n
+      ML_SERVICE_URL: http://ml-service:8000
     volumes:
       - n8n-data:/home/node/.n8n
       - ./workflows:/workflows
@@ -123,6 +182,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ml-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:5678/healthz"]
@@ -142,6 +203,10 @@ volumes:
   grafana-data:
     driver: local
   n8n-data:
+    driver: local
+  ollama-data:
+    driver: local
+  ml-models:
     driver: local
 
 networks:
