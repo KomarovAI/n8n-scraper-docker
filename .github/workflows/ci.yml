@@ -25,34 +25,50 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-lock.txt
-          
+      
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements-lock.txt
-          
+      
       - name: Verify dependency versions
         run: |
           pip list --format=freeze > installed.txt
           echo "Installed packages:"
           cat installed.txt
-          
+      
       - name: Run Python tests
         run: |
           pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
-          
+      
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
-          
+      
       - name: Install Node dependencies
         run: npm ci
-          
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=high || true
+      
+      - name: Check for secrets leakage
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: .
+          scan_depth: 50
+          redact: true
+      
       - name: Run JavaScript tests
         run: npm test
-        
+      
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: ./dist || ./build || ./out || ./coverage.xml
+      
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         if: always()
@@ -60,7 +76,18 @@ jobs:
           files: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
-  
+      
+      - name: SLSA Provenance
+        uses: slsa-framework/github-actions-build@v2
+
+      - name: Slack notification on failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: '#ci-alerts'
+          SLACK_COLOR: '#ef2d56'
+
   security:
     runs-on: ubuntu-latest
     steps:
@@ -70,10 +97,10 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: python, javascript
-          
+      
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
-        
+      
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.33.1
         with:
@@ -82,13 +109,13 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          
+      
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
-          
+      
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
         if: github.event_name == 'pull_request'
