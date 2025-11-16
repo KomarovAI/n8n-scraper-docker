@@ -3,7 +3,7 @@
 # ONLY update with pip freeze or use Poetry for lock management.
 
 # Example generated content after running `pip freeze` post-install for requirements.txt
-aiohttp==3.8.5
+aiohttp==3.13.2
 aiobotocore==2.7.0
 boto3==1.40.74
 botocore==1.31.2
