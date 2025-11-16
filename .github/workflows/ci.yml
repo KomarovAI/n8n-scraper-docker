@@ -100,15 +100,53 @@ jobs:
           check-latest: true
           registry-url: 'https://registry.npmjs.org'
       
-      - name: Verify Node installation
+      - name: Verify Node installation (enhanced)
         run: |
+          echo "=== Node.js Environment ==="
           node --version
           npm --version
-          echo "Node modules cache location:"
+          node -e "console.log('Node.js works: ' + process.version)"
+          echo -e "\n=== npm Configuration ==="
           npm config get cache
+          npm config get registry
+          npm config list
+          echo -e "\n=== Registry connectivity ==="
+          npm ping
+          echo -e "\n=== npm doctor ==="
+          npm doctor || echo "WARNING: npm doctor found issues"
       
-      - name: Install Node dependencies
-        run: npm ci
+      - name: Validate package-lock.json
+        run: |
+          echo "=== Validating lockfile integrity ==="
+          npm ls --json > /dev/null || echo "WARNING: Dependency tree has issues"
+          jq '.lockfileVersion' package-lock.json
+      
+      - name: Install Node dependencies (hardened)
+        run: npm ci --prefer-offline --no-audit
+        timeout-minutes: 10
+        env:
+          NODE_ENV: production
+          NPM_CONFIG_LOGLEVEL: warn
+      
+      - name: Verify Node installation integrity
+        run: |
+          echo "=== Installed packages ==="
+          npm ls --depth=0
+          echo -e "\n=== node_modules size ==="
+          du -sh node_modules
+          echo -e "\n=== Checking for vulnerabilities ==="
+          npm audit --json > npm-audit-results.json || true
+          npm audit
+          echo -e "\n=== Listing outdated packages ==="
+          npm outdated || true
+      
+      - name: Upload npm reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-reports
+          path: |
+            npm-audit-results.json
+            package-lock.json
       
       - name: Run npm audit
         run: npm audit --audit-level=high || true
