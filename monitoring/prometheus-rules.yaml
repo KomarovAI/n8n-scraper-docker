@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-scraper-rules
+  namespace: monitoring
+data:
+  scraper-rules.yml: |
+    groups:
+    - name: n8n_scraper_alerts
+      interval: 30s
+      rules:
+      - alert: ScraperHighFailureRate
+        expr: |
+          (
+            sum(rate(n8n_scraper_requests_failed_total[5m]))
+            /
+            sum(rate(n8n_scraper_requests_total[5m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High scraper failure rate"
+          description: "Scraper failure rate is {{ $value | humanizePercentage }} (> 20%)"
+      
+      - alert: ScraperDown
+        expr: up{job="n8n-scraper"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "N8N scraper is down"
+          description: "N8N scraper has been down for more than 5 minutes"
+      
+      - alert: ScraperHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(n8n_scraper_request_duration_seconds_bucket[5m])) by (le)
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High scraper latency"
+          description: "P95 latency is {{ $value }}s (> 30s)"
+      
+      - alert: PostgreSQLConnectionPoolExhausted
+        expr: |
+          n8n_scraper_db_connections_active
+          /
+          n8n_scraper_db_connections_max
+          > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection pool nearly exhausted"
+          description: "Connection pool usage is {{ $value | humanizePercentage }}"

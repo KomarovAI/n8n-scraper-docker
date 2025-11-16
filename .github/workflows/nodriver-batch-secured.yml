@@ -1,0 +1,64 @@
+name: Nodriver Batch Scraper (Secured)
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'JSON array of URL objects'
+        required: true
+      batchId:
+        description: 'Batch ID for tracking'
+        required: true
+
+# SECURITY: Explicit minimal permissions
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir -r scripts/requirements.txt
+          
+      # SECURITY: Validate input before use
+      - name: Validate input
+        id: validate
+        env:
+          URLS_JSON: ${{ inputs.urls }}
+          BATCH_ID: ${{ inputs.batchId }}
+        run: |
+          python3 scripts/validate_input.py
+          
+      - name: Run scraper with validated input
+        timeout-minutes: 25
+        env:
+          BATCH_ID: ${{ inputs.batchId }}
+        run: |
+          python3 scripts/nodriver_batch_scraper.py --input /tmp/validated_urls.json
+          
+      - name: Verify results
+        run: |
+          python3 scripts/verify_results.py
+          
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ inputs.batchId }}-${{ github.run_id }}
+          path: results.json
+          retention-days: 7

@@ -1,0 +1,56 @@
+name: Playwright Batch Scraper (Secured)
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'JSON array of URL objects'
+        required: true
+      batchId:
+        description: 'Batch ID'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: scripts/package.json
+          
+      - name: Install dependencies
+        working-directory: ./scripts
+        run: |
+          npm ci --production
+          npx playwright install chromium
+          
+      - name: Validate input
+        env:
+          URLS_JSON: ${{ inputs.urls }}
+          BATCH_ID: ${{ inputs.batchId }}
+        run: |
+          node scripts/validate_input.js
+          
+      - name: Run scraper
+        timeout-minutes: 25
+        env:
+          BATCH_ID: ${{ inputs.batchId }}
+        run: |
+          node scripts/playwright_batch_scraper.js /tmp/validated_urls.json
+          
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ inputs.batchId }}-${{ github.run_id }}
+          path: results.json
+          retention-days: 7
