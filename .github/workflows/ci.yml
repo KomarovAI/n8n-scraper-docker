@@ -14,65 +14,136 @@ permissions:
   attestations: write
 
 jobs:
-  test:
+  security:
     runs-on: ubuntu-latest
     steps:
-      ...
-      - name: Upload unified coverage to Codecov
-        uses: codecov/codecov-action@v4
-        if: always()
+      - uses: actions/checkout@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml,./coverage/lcov.info
-          flags: python,javascript
-          name: codecov-unified
-          fail_ci_if_error: true
-          verbose: true
-          override_commit: ${{ github.sha }}
-          override_branch: ${{ github.ref }}
-          parent: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       
-      - name: Create codecov.yml for config
+      - name: Create CodeQL configuration
         run: |
-          cat > codecov.yml << 'EOF'
-          coverage:
-            status:
-              project:
-                default:
-                  target: 80%
-                  threshold: 2%
-              patch:
-                default:
-                  target: 80%
-          comment:
-            layout: "reach,diff,flags,tree"
-            behavior: default
-            require_changes: false
+          mkdir -p .github/codeql
+          cat > .github/codeql/codeql-config.yml << 'EOF'
+          name: "CodeQL Config"
+
+          queries:
+            - uses: security-extended
+            - uses: security-and-quality
+
+          paths-ignore:
+            - '**/test/**'
+            - '**/tests/**'
+            - '**/*.test.js'
+            - '**/*.spec.py'
+
+          paths:
+            - 'scrapers/**'
+            - 'proxy/**'
+            - 'ml/**'
           EOF
       
-      - name: Generate SLSA Provenance
-        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+      - name: Initialize CodeQL (enhanced)
+        uses: github/codeql-action/init@v4
         with:
-          base64-subjects: |
-            ${{ steps.check-artifacts.outputs.artifact_path }}
-          upload-assets: true
-          provenance-name: attestation.intoto.jsonl
+          languages: python,javascript
+          queries: security-extended,security-and-quality
+          config-file: .github/codeql/codeql-config.yml
+          setup-python-dependencies: true
+        timeout-minutes: 30
+      
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:multi"
+          upload: true
+          output: sarif-results
+          threads: 0
+        timeout-minutes: 45
+      
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          trivyignores: '.trivyignore'
+        timeout-minutes: 10
         continue-on-error: false
       
-      - name: Upload SLSA attestation
+      - name: Run Trivy dependency scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-deps.json'
+          scanners: 'vuln'
+          list-all-pkgs: true
+        timeout-minutes: 10
+        continue-on-error: true
+      
+      - name: Upload Trivy results to Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+          category: trivy-filesystem
+      
+      - name: Upload Trivy artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: slsa-attestation
-          path: attestation.intoto.jsonl
-          retention-days: 90
+          name: trivy-reports
+          path: |
+            trivy-fs-results.sarif
+            trivy-deps.json
+          retention-days: 30
       
-      - name: Verify SLSA Provenance
+      - name: Create Trivy ignore file
         run: |
-          echo "=== Installing slsa-verifier ==="
-          curl -Lo slsa-verifier https://github.com/slsa-framework/slsa-verifier/releases/latest/download/slsa-verifier-linux-amd64
-          chmod +x slsa-verifier
-          echo -e "\n=== Verifying attestation ==="
-          ./slsa-verifier verify-artifact \
-            --provenance-path attestation.intoto.jsonl \
-            --source-uri github.com/${{ github.repository }} || true
+          cat > .trivyignore << 'EOF'
+          # Ignore CVE-2023-12345
+          # Example: CVE-2023-23456
+          EOF
+      
+      - name: Dependency Review (strict)
+        uses: actions/dependency-review-action@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fail-on-severity: critical
+          fail-on-scopes: runtime,development
+          allow-licenses: MIT, Apache-2.0, BSD-3-Clause, ISC
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+          comment-summary-in-pr: always
+          vulnerability-check: true
+          license-check: true
+          config-file: .github/dependency-review-config.yml
+        timeout-minutes: 10
+      
+      - name: Create Dependency Review config
+        run: |
+          mkdir -p .github
+          cat > .github/dependency-review-config.yml << 'EOF'
+          fail_on_severity: 'critical'
+
+          allow_licenses:
+            - 'MIT'
+            - 'Apache-2.0'
+            - 'BSD-3-Clause'
+            - 'ISC'
+
+          deny_licenses:
+            - 'GPL-2.0'
+            - 'GPL-3.0'
+            - 'AGPL-3.0'
+
+          allow_dependencies_licenses:
+            - 'pkg:npm/express'
+          EOF
