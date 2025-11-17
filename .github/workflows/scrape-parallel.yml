@@ -1,0 +1,196 @@
+name: Parallel Scraping (Dynamic Runners)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_urls:
+        description: 'URLs для скрапинга (через запятую)'
+        required: true
+        default: 'https://example.com,https://test.com,https://demo.com'
+      max_parallel_runners:
+        description: 'Максимум параллельных раннеров'
+        required: true
+        default: '2'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '5'
+          - '10'
+      use_proxy:
+        description: 'Использовать прокси'
+        required: true
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  # Job 1: Подготовка - генерирует динамический список задач
+  prepare-scraping-tasks:
+    name: 📋 Подготовка задач
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      task_count: ${{ steps.set-matrix.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Generate dynamic matrix
+        id: set-matrix
+        run: |
+          # Парсим URLs из input
+          IFS=',' read -ra URLS <<< "${{ github.event.inputs.target_urls }}"
+          
+          # Генерируем JSON matrix
+          MATRIX="{\"include\":["
+          INDEX=0
+          for url in "${URLS[@]}"; do
+            # Генерируем прокси для каждой задачи (если enabled)
+            if [ "${{ github.event.inputs.use_proxy }}" = "true" ]; then
+              PROXY="http://proxy-$((INDEX % 3 + 1)).example.com:8080"
+            else
+              PROXY="none"
+            fi
+            
+            # Добавляем в matrix
+            MATRIX="$MATRIX{\"url\":\"${url}\",\"proxy\":\"${PROXY}\",\"index\":$INDEX}"
+            INDEX=$((INDEX + 1))
+            
+            # Добавляем запятую если не последний элемент
+            if [ $INDEX -lt ${#URLS[@]} ]; then
+              MATRIX="$MATRIX,"
+            fi
+          done
+          MATRIX="$MATRIX]}"
+          
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          echo "count=${#URLS[@]}" >> $GITHUB_OUTPUT
+          echo "Generated matrix: $MATRIX"
+          echo "Total tasks: ${#URLS[@]}"
+
+  # Job 2: Параллельный scraping с динамической нагрузкой
+  scrape:
+    name: 🌐 Scrape [${{ matrix.index }}] ${{ matrix.url }}
+    needs: prepare-scraping-tasks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # Продолжаем даже если один раннер упал
+      max-parallel: ${{ fromJSON(github.event.inputs.max_parallel_runners) }}
+      matrix: ${{ fromJSON(needs.prepare-scraping-tasks.outputs.matrix) }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install Puppeteer and dependencies
+        run: |
+          npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
+      
+      - name: Run scraper with proxy
+        timeout-minutes: 10
+        env:
+          TARGET_URL: ${{ matrix.url }}
+          PROXY_URL: ${{ matrix.proxy }}
+          TASK_INDEX: ${{ matrix.index }}
+        run: |
+          echo "🚀 Starting scraper for: $TARGET_URL"
+          echo "🔒 Using proxy: $PROXY_URL"
+          echo "📊 Task index: $TASK_INDEX"
+          
+          # Создаём временный скрипт
+          cat > scrape-task.js << 'EOF'
+          const puppeteer = require('puppeteer-extra');
+          const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+          puppeteer.use(StealthPlugin());
+          
+          (async () => {
+            const url = process.env.TARGET_URL;
+            const proxy = process.env.PROXY_URL;
+            const index = process.env.TASK_INDEX;
+            
+            console.log(`[${index}] Scraping: ${url}`);
+            
+            const launchOptions = {
+              headless: 'new',
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            };
+            
+            // Добавляем прокси если указан
+            if (proxy !== 'none') {
+              launchOptions.args.push(`--proxy-server=${proxy}`);
+              console.log(`[${index}] Using proxy: ${proxy}`);
+            }
+            
+            const browser = await puppeteer.launch(launchOptions);
+            const page = await browser.newPage();
+            
+            try {
+              await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+              const title = await page.title();
+              const content = await page.content();
+              
+              console.log(`[${index}] ✅ Success: ${title}`);
+              console.log(`[${index}] Content length: ${content.length} bytes`);
+              
+              // Сохраняем результат
+              const fs = require('fs');
+              fs.writeFileSync(`result-${index}.html`, content);
+              
+            } catch (error) {
+              console.error(`[${index}] ❌ Error: ${error.message}`);
+              process.exit(1);
+            } finally {
+              await browser.close();
+            }
+          })();
+          EOF
+          
+          # Запускаем скрипт
+          node scrape-task.js
+      
+      - name: Upload scraping results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-result-${{ matrix.index }}
+          path: result-*.html
+          retention-days: 7
+
+  # Job 3: Сводка результатов
+  summary:
+    name: 📊 Итоги скрапинга
+    needs: [prepare-scraping-tasks, scrape]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./results
+      
+      - name: Generate summary
+        run: |
+          echo "## 📊 Результаты параллельного скрапинга" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Всего задач:** ${{ needs.prepare-scraping-tasks.outputs.task_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Параллельных раннеров:** ${{ github.event.inputs.max_parallel_runners }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Использование прокси:** ${{ github.event.inputs.use_proxy }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 Собранные данные:" >> $GITHUB_STEP_SUMMARY
+          find ./results -name "*.html" | while read file; do
+            size=$(wc -c < "$file")
+            echo "- $(basename $file): ${size} bytes" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Скрапинг завершён!" >> $GITHUB_STEP_SUMMARY
