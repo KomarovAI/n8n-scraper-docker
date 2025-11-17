@@ -1,3 +1,6 @@
+# IMPORTANT: Replace YOUR_SERVER_IP with your actual server IP before deploying!
+# Example: sed -i 's/YOUR_SERVER_IP/31.56.39.58/g' manifests/ingressroute.yaml
+
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -7,7 +10,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`n8n.${SERVER_IP}.nip.io`)
+    - match: Host(`n8n.YOUR_SERVER_IP.nip.io`)
       kind: Rule
       services:
         - name: n8n-scraper-external
@@ -24,7 +27,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`n8n.${SERVER_IP}.nip.io`)
+    - match: Host(`n8n.YOUR_SERVER_IP.nip.io`)
       kind: Rule
       middlewares:
         - name: redirect-https
