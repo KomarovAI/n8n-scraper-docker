@@ -1,260 +1,272 @@
-# N8N Smart Web Scraper - Enterprise-Grade with 100% Free OSS Stack 🚀
+# N8N Scraper - Kubernetes StatefulSet Deployment
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Production Ready](https://img.shields.io/badge/production-ready-green.svg)](https://github.com/KomarovAI/n8n-scraper-workflow)
-[![Cost: $0](https://img.shields.io/badge/cost-%240-brightgreen.svg)](https://github.com/KomarovAI/n8n-scraper-workflow)
 
-Enterprise-grade web scraping platform built with **100% free and open-source technologies**. No vendor lock-in, zero operational costs, production-ready from day one.
+Enterprise-grade web scraping platform для Kubernetes с использованием **StatefulSet** и интеграцией с Traefik.
 
-## 🎯 What Makes This Special
+## 🎯 Ключевые особенности
 
-- **Zero Cost**: $0/month operational costs with self-hosting
-- **Enterprise-Grade**: Production-ready with auto-scaling, monitoring, and high availability
-- **No Vendor Lock-In**: 100% open-source stack, deploy anywhere
-- **Advanced Anti-Bot**: Puppeteer Stealth, TOR network, free proxy rotation
-- **Battle-Tested**: Handles 95-98% success rate against modern protections
+- **StatefulSet** вместо Deployment - стабильная идентичность подов
+- **Headless Service** - прямое подключение к подам
+- **Автоматический HTTPS** через Traefik + Let's Encrypt
+- **Минималистичная структура** - только необходимые манифесты
+- **Production-ready** - NetworkPolicy, ResourceQuota, Security Context
+- **Простой деплой** - `./deploy.sh` и готово
 
-## 🏆 Key Features
+## 🚀 Быстрый старт
 
-### Intelligent Multi-Layer Scraping
-- **HTTP Scraper**: Fast baseline for simple sites (200-500ms)
-- **Puppeteer Stealth**: Advanced anti-bot bypass with Ghost Cursor
-- **Undetected Chrome**: Python-based stealth automation
-- **TOR Network**: Anonymous scraping with automatic identity renewal
-- **Free Proxy Pool**: Rotating proxies from 5+ sources
+### Предварительные требования
 
-### Production Infrastructure
-- **Kubernetes Auto-Scaling**: HPA from 2-10 replicas based on CPU/memory
-- **High Availability**: PodDisruptionBudget, Redis cluster, PostgreSQL HA
-- **Adaptive Rate Limiting**: Redis-based token bucket with dynamic adjustment
-- **Prometheus + Grafana**: Enterprise monitoring and alerting
-- **Docker Compose**: Complete local development environment
+- Kubernetes кластер (1.19+)
+- Traefik установлен как Ingress Controller
+- `kubectl` настроен для доступа к кластеру
 
-### Security & Compliance
-- **SSRF Protection**: IPv4/IPv6 filtering, cloud metadata endpoint blocking
-- **Input Validation**: Pydantic v2 schemas with strict typing
-- **NetworkPolicy**: Kubernetes egress whitelist
-- **Secrets Management**: Kubernetes Secrets integration
-- **OWASP Top 10 Compliance**: Security-first design
-
-## 📊 Performance Benchmarks
-
-| Target Type | Success Rate | Method | Latency |
-|------------|--------------|---------|----------|
-| Static HTML | 99% | HTTP | 200-500ms |
-| JavaScript SPA | 95-97% | Playwright | 2-4s |
-| Anti-bot Protected | 90-95% | Puppeteer Stealth | 4-8s |
-| Cloudflare Challenge | 85-92% | Undetected Chrome | 5-10s |
-
-## 🚀 Quick Start
-
-### Using Docker Compose (Recommended)
+### Установка
 
 ```bash
-# Clone repository
+# 1. Клонируем репозиторий
 git clone https://github.com/KomarovAI/n8n-scraper-workflow.git
 cd n8n-scraper-workflow
 
-# Copy environment template
-cp .env.example .env
-# Edit .env with your settings
+# 2. Создаём secrets
+cp manifests/secret.yaml.example manifests/secret.yaml
+# Отредактируйте manifests/secret.yaml с вашими паролями
 
-# Start all services
-docker-compose up -d
+# 3. Устанавливаем ваш SERVER_IP
+export SERVER_IP="31.56.39.58"  # Ваш IP сервера
 
-# Access services:
-# - n8n: http://localhost:5678
-# - Grafana: http://localhost:3000
-# - Prometheus: http://localhost:9090
+# 4. Деплоим
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-### Install Dependencies
+### Проверка
 
 ```bash
-# Node.js dependencies (Puppeteer Stealth)
-npm install
-
-# Python dependencies (TOR, Proxies, Undetected Chrome)
-pip install -r requirements.txt
-```
-
-## 📡 API Usage
-
-```bash
-# Basic scraping
-curl -X POST https://your-n8n.com/webhook/scrape \
-  -H "X-API-Key: your-secret-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com",
-    "method": "stealth"
-  }'
-```
-
-### Scraping Methods
-
-1. **HTTP** (Fastest)
-```javascript
-{ "url": "https://example.com", "method": "http" }
-```
-
-2. **Puppeteer Stealth** (Anti-bot bypass)
-```javascript
-{ "url": "https://protected-site.com", "method": "stealth" }
-```
-
-3. **TOR Network** (Anonymous)
-```python
-from proxy.tor_manager import TORProxyManager
-tor = TORProxyManager()
-response = tor.fetch("https://example.com")
-```
-
-4. **Free Proxy Pool**
-```python
-from proxy.free_proxy_scraper import FreeProxyManager
-manager = FreeProxyManager()
-proxy = await manager.get_working_proxy()
-```
-
-## 🏗️ Architecture
-
-```
-Webhook (Header Auth)
-  ↓
-Input Validator (SSRF Protection)
-  ↓
-Adaptive Rate Limiter (Redis)
-  ↓
-Smart Router
-  ├─→ HTTP (fast sites)
-  ├─→ Puppeteer Stealth (JS-heavy)
-  ├─→ TOR Network (anonymous)
-  └─→ Free Proxy Pool (distributed)
-  ↓
-Anti-Bot Bypass
-  ├─→ Ghost Cursor (human-like)
-  ├─→ Canvas Fingerprinting
-  └─→ WebDriver Detection
-  ↓
-Content Deduplication (SHA256)
-  ↓
-PostgreSQL Storage
-  ↓
-Prometheus Metrics
-```
-
-## 🐳 Infrastructure Components
-
-- **Redis**: Rate limiting, caching, session management
-- **PostgreSQL**: Persistent storage with deduplication
-- **TOR**: Anonymous scraping via SOCKS5 proxy
-- **Prometheus**: Metrics collection and alerting
-- **Grafana**: Real-time dashboards and visualization
-- **n8n**: Workflow orchestration and automation
-
-## ☸️ Kubernetes Deployment
-
-```bash
-# Apply all manifests
-kubectl apply -f k8s/
-
-# Verify deployment
+# Проверить статус подов
 kubectl get pods -n n8n-scraper
-kubectl get hpa -n n8n-scraper
+
+# Проверить логи
+kubectl logs -f n8n-scraper-0 -n n8n-scraper
+
+# Проверить StatefulSet
+kubectl get statefulset -n n8n-scraper
 ```
 
-### Kubernetes Resources
+### Доступ
 
-- `k8s/deployment.yaml` - Main application deployment
-- `k8s/hpa.yaml` - Horizontal Pod Autoscaler (2-10 replicas)
-- `k8s/pdb.yaml` - Pod Disruption Budget (HA)
-- `k8s/networkpolicy.yaml` - Egress whitelist
-- `k8s/redis.yaml` - Redis StatefulSet
-- `k8s/service.yaml` - Service exposure
+После деплоя N8N будет доступен по адресу:
+```
+https://n8n.${SERVER_IP}.nip.io
+```
 
-## 📈 Monitoring
+Пример: `https://n8n.31.56.39.58.nip.io`
 
-### Grafana Dashboards
-- **Scraping Metrics**: Success rate, latency, throughput
-- **System Health**: CPU, memory, disk usage
-- **Redis Performance**: Hit rate, connections, memory
-- **Proxy Status**: Working proxies, ban rate, rotation
+## 📚 Структура проекта
 
-### Prometheus Alerts
-- High error rate (>10%)
-- Slow response time (>5s avg)
-- Low proxy availability (<10 working)
-- Redis connection failures
+```
+n8n-scraper-workflow/
+├── manifests/              # Kubernetes манифесты
+│   ├── namespace.yaml       # Namespace
+│   ├── statefulset.yaml     # StatefulSet + Headless Service
+│   ├── service.yaml         # External Service для Traefik
+│   ├── ingressroute.yaml    # Traefik IngressRoute с HTTPS
+│   ├── networkpolicy.yaml   # Сетевые политики
+│   └── secret.yaml.example  # Пример secrets
+├── deploy.sh               # Скрипт деплоя
+├── uninstall.sh            # Скрипт удаления
+├── docker-compose.yml      # Для локальной разработки
+└── docs/                   # Дополнительная документация
+```
 
-## 💰 Cost Comparison
+## 🔒 Безопасность
 
-| Component | Our Stack (Free) | Commercial Alternative | Savings |
-|-----------|------------------|------------------------|----------|
-| Anti-Bot Bypass | Puppeteer Stealth | ScraperAPI | $249/mo |
-| Proxy Network | TOR + Free Pool | Bright Data | $500/mo |
-| Browser Automation | Playwright | Apify | $49-499/mo |
-| Monitoring | Prometheus/Grafana | Datadog | $15/host |
-| Orchestration | n8n Community | Zapier | $20-300/mo |
-| **Total** | **$0/month** | **$833-1563/month** | **$10,000-18,000/year** |
+### NetworkPolicy
+Разрешены только необходимые соединения:
+- Ingress от Traefik на порт 5678
+- Egress к PostgreSQL (5432)
+- Egress к Redis (6379)
+- Egress для scraping (80, 443)
+- DNS резолюция
 
-## 🛡️ Security Features
+### Security Context
+- `runAsNonRoot: true`
+- `runAsUser: 1000`
+- `capabilities: drop ALL`
+- `privileged: false`
 
-- ✅ SSRF Protection (IPv4/IPv6, cloud metadata)
-- ✅ Input validation with Pydantic v2
-- ✅ SHA256 pinning for GitHub Actions
-- ✅ Kubernetes NetworkPolicy egress whitelist
-- ✅ Secrets stored in Kubernetes Secrets/Vault
-- ✅ OWASP Top 10 2021 compliance
-- ✅ GDPR-ready data minimization
+### Secrets Management
+Все секреты хранятся в Kubernetes Secrets:
+```bash
+kubectl create secret generic n8n-credentials \
+  --from-literal=username='admin' \
+  --from-literal=password='secure_password' \
+  -n n8n-scraper
+```
 
-## 📚 Documentation
+## 🔧 Интеграция с Traefik
 
-- [Configuration Guide](docs/CONFIGURATION.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Security Model](docs/SECURITY.md)
-- [Architecture Deep Dive](docs/ARCHITECTURE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
+### Автоматический HTTPS
 
-## 🧪 Testing
+Traefik автоматически выдаёт SSL-сертификаты от Let's Encrypt:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: n8n-scraper
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`n8n.${SERVER_IP}.nip.io`)
+      kind: Rule
+      services:
+        - name: n8n-scraper-external
+          port: 5678
+  tls:
+    certResolver: letsencrypt
+```
+
+### Архитектура
+
+```
+Интернет
+   ↓
+DNS: n8n.${SERVER_IP}.nip.io → ${SERVER_IP}
+   ↓
+Traefik (порты 80/443)
+   ↓ Let's Encrypt SSL
+IngressRoute → n8n-scraper-external Service (порт 5678)
+   ↓
+n8n-scraper StatefulSet
+   ↓
+PostgreSQL + Redis
+```
+
+## 💾 Persistent Storage
+
+StatefulSet использует `volumeClaimTemplates` для автоматического создания PVC:
+
+```yaml
+volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 10Gi
+```
+
+Каждый под получает свой собственный PVC:
+- `data-n8n-scraper-0`
+- `data-n8n-scraper-1` (при scale)
+
+## 🔄 Масштабирование
 
 ```bash
-# Run unit tests
-npm test
-pytest tests/
+# Увеличить количество реплик
+kubectl scale statefulset n8n-scraper --replicas=3 -n n8n-scraper
 
-# Run integration tests
-pytest tests/integration/
-
-# Load testing
-k6 run tests/load/scraper-load-test.js
+# Проверить статус
+kubectl get pods -n n8n-scraper
 ```
 
-## 🤝 Contributing
+## 🧹 Очистка
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
+```bash
+# Полное удаление всех ресурсов
+chmod +x uninstall.sh
+./uninstall.sh
+```
 
-## 📄 License
+**Внимание**: Это удалит все данные включая PVC!
 
-MIT License - see [LICENSE](LICENSE) file for details.
+## 📊 Мониторинг
 
-## 🌟 Star History
+### Проверка здоровья
 
-If this project helped you, please consider giving it a ⭐!
+```bash
+# Liveness probe
+kubectl exec -it n8n-scraper-0 -n n8n-scraper -- curl http://localhost:5678/healthz
 
-## 🔗 Related Projects
+# Логи
+kubectl logs -f n8n-scraper-0 -n n8n-scraper
 
-- [Puppeteer Stealth Plugin](https://github.com/berstend/puppeteer-extra/tree/master/packages/puppeteer-extra-plugin-stealth)
-- [Undetected ChromeDriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver)
-- [n8n Workflow Automation](https://github.com/n8n-io/n8n)
-- [Playwright](https://github.com/microsoft/playwright)
+# Описание пода
+kubectl describe pod n8n-scraper-0 -n n8n-scraper
+```
 
-## 📞 Support
+### Метрики N8N
 
-For issues and questions:
-- Open an [Issue](https://github.com/KomarovAI/n8n-scraper-workflow/issues)
-- Check [Discussions](https://github.com/KomarovAI/n8n-scraper-workflow/discussions)
+N8N экспортирует метрики Prometheus на `/metrics`:
+```bash
+kubectl port-forward n8n-scraper-0 5678:5678 -n n8n-scraper
+curl http://localhost:5678/metrics
+```
+
+## 🔧 Troubleshooting
+
+### Pod не запускается
+
+```bash
+# Проверить события
+kubectl get events -n n8n-scraper --sort-by='.lastTimestamp'
+
+# Проверить describe
+kubectl describe pod n8n-scraper-0 -n n8n-scraper
+
+# Проверить логи
+kubectl logs n8n-scraper-0 -n n8n-scraper --previous
+```
+
+### Проблемы с PVC
+
+```bash
+# Проверить PVC
+kubectl get pvc -n n8n-scraper
+
+# Проверить PV
+kubectl get pv
+
+# Удалить PVC (осторожно!)
+kubectl delete pvc data-n8n-scraper-0 -n n8n-scraper
+```
+
+### HTTPS не работает
+
+```bash
+# Проверить IngressRoute
+kubectl describe ingressroute n8n-scraper -n n8n-scraper
+
+# Проверить Traefik логи
+kubectl logs -n traefik -l app.kubernetes.io/name=traefik
+
+# Проверить сертификаты
+kubectl get certificates -A
+```
+
+## 📚 Дополнительная документация
+
+- [SECURITY.md](SECURITY.md) - Руководство по безопасности
+- [docker-compose.yml](docker-compose.yml) - Локальная разработка
+- [docs/](docs/) - Расширенная документация
+
+## 🔗 Ссылки
+
+- [3xui-k8s-statefulset](https://github.com/KomarovAI/3xui-k8s-statefulset) - Референсная архитектура
+- [n8n Documentation](https://docs.n8n.io/)
+- [Traefik Documentation](https://doc.traefik.io/traefik/)
+- [Kubernetes StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
+
+## 📝 Лицензия
+
+MIT License - см. [LICENSE](LICENSE)
 
 ---
 
-**Built with ❤️ using 100% free and open-source technologies**
+**Built with ❤️ by KomarovAI**
