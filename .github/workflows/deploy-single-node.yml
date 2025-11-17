@@ -2,14 +2,32 @@ name: Deploy to Cluster (Single-Node)
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Целевое окружение'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - dev
+
+# Динамический concurrency control - предотвращает одновременные деплои
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false  # Не отменять текущий деплой
 
 permissions:
   contents: read
 
 jobs:
+  # Job 1: Сборка Docker-образа (Runner #1)
   build-n8n-image:
-    name: Build N8N Docker Image
+    name: 📦 Build N8N Image
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,23 +36,39 @@ jobs:
         uses: docker/setup-buildx-action@v3
       
       - name: Login to DockerHub
+        if: github.event.inputs.environment == 'production'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Docker meta (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/n8n-scraper
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/n8n-custom:latest
+          push: ${{ github.event.inputs.environment == 'production' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            ENVIRONMENT=${{ github.event.inputs.environment }}
 
+  # Job 2: Раскатка в кластер (Runner #2)
   rollout-to-cluster:
-    name: Deploy N8N to Cluster
-    runs-on: ubuntu-latest
+    name: 🚀 Deploy to K8s (${{ github.event.inputs.environment }})
     needs: build-n8n-image
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -44,28 +78,67 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Set KUBECONFIG
-        run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig && export KUBECONFIG=$PWD/kubeconfig
-
-      - name: Replace image in manifests/statefulset.yaml
+      - name: Configure kubectl
         run: |
-          sed -i "s|image: n8nio/n8n:latest|image: ${{ secrets.DOCKERHUB_USERNAME }}/n8n-custom:latest|g" manifests/statefulset.yaml
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl cluster-info
 
-      - name: Kubectl apply manifests
+      - name: Replace SERVER_IP in manifests
         run: |
+          sed -i "s/YOUR_SERVER_IP/${{ secrets.SERVER_IP }}/g" manifests/ingressroute.yaml
+
+      - name: Apply manifests (in order)
+        run: |
+          echo "➡️  Creating namespace..."
           kubectl apply -f manifests/namespace.yaml
+          
+          echo "➡️  Creating StorageClass..."
           kubectl apply -f manifests/storageclass.yaml
-          kubectl apply -f manifests/secret.yaml
+          
+          echo "➡️  Creating secrets..."
+          kubectl apply -f manifests/secret.yaml || echo "Secrets already exist"
+          
+          echo "➡️  Deploying PostgreSQL..."
           kubectl apply -f manifests/postgresql.yaml
+          
+          echo "➡️  Deploying Redis..."
           kubectl apply -f manifests/redis.yaml
+          
+          echo "➡️  Waiting for databases..."
+          kubectl wait --for=condition=ready pod -l app=postgresql -n n8n-scraper --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=redis -n n8n-scraper --timeout=60s || true
+          
+          echo "➡️  Deploying N8N..."
           kubectl apply -f manifests/statefulset.yaml
+          
+          echo "➡️  Creating services..."
           kubectl apply -f manifests/service.yaml
+          
+          echo "➡️  Applying NetworkPolicy..."
           kubectl apply -f manifests/networkpolicy.yaml
+          
+          echo "➡️  Creating IngressRoute..."
           kubectl apply -f manifests/ingressroute.yaml
 
-      - name: Wait for rollout
+      - name: Wait for N8N rollout
         run: |
-          kubectl rollout status statefulset/n8n-scraper -n n8n-scraper --timeout=180s
+          kubectl rollout status statefulset/n8n-scraper -n n8n-scraper --timeout=300s
 
-      - name: Print all pods
-        run: kubectl get pods -n n8n-scraper
+      - name: Print deployment status
+        if: always()
+        run: |
+          echo "### 📊 Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Pods:" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n n8n-scraper >> $GITHUB_STEP_SUMMARY || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Services:" >> $GITHUB_STEP_SUMMARY
+          kubectl get svc -n n8n-scraper >> $GITHUB_STEP_SUMMARY || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### PVCs:" >> $GITHUB_STEP_SUMMARY
+          kubectl get pvc -n n8n-scraper >> $GITHUB_STEP_SUMMARY || true
