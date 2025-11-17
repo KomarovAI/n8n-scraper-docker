@@ -19,7 +19,7 @@ metadata:
   namespace: n8n-scraper
 spec:
   serviceName: n8n-scraper
-  replicas: 1
+  replicas: 1  # Single-node: только 1 реплика
   selector:
     matchLabels:
       app: n8n-scraper
@@ -31,6 +31,16 @@ spec:
         app: n8n-scraper
     spec:
       automountServiceAccountToken: false
+      
+      # Tolerations для разворачивания на master node
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      
       # Init container для проверки готовности PostgreSQL
       initContainers:
         - name: wait-for-postgres
@@ -44,6 +54,7 @@ spec:
                 sleep 2
               done
               echo "PostgreSQL is ready!"
+      
       containers:
         - name: n8n
           image: n8nio/n8n:latest
@@ -51,6 +62,7 @@ spec:
           ports:
             - containerPort: 5678
               name: web
+          
           env:
             # Basic Auth
             - name: N8N_BASIC_AUTH_ACTIVE
@@ -114,13 +126,14 @@ spec:
             - name: data
               mountPath: /home/node/.n8n
           
+          # Уменьшенные resources для single-node
           resources:
             limits:
-              memory: 1Gi  # Уменьшено с 2Gi
-              cpu: 1000m   # Уменьшено с 2000m
+              memory: 768Mi   # Уменьшено с 1Gi
+              cpu: 800m       # Уменьшено с 1000m
             requests:
-              memory: 512Mi
-              cpu: 250m    # Уменьшено с 500m
+              memory: 384Mi   # Уменьшено с 512Mi
+              cpu: 200m       # Уменьшено с 250m
           
           securityContext:
             privileged: false
@@ -130,7 +143,6 @@ spec:
               drop:
                 - ALL
           
-          # Улучшенные probes - /healthz может требовать auth
           livenessProbe:
             httpGet:
               path: /
@@ -138,10 +150,10 @@ spec:
               httpHeaders:
                 - name: User-Agent
                   value: "k8s-liveness-probe"
-            initialDelaySeconds: 60   # Увеличено с 30
+            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 10        # Увеличено с 5
-            failureThreshold: 5       # Увеличено с 3
+            timeoutSeconds: 10
+            failureThreshold: 5
           
           readinessProbe:
             httpGet:
@@ -150,7 +162,7 @@ spec:
               httpHeaders:
                 - name: User-Agent
                   value: "k8s-readiness-probe"
-            initialDelaySeconds: 30   # Увеличено с 10
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -164,4 +176,4 @@ spec:
         storageClassName: local-path
         resources:
           requests:
-            storage: 10Gi
+            storage: 5Gi  # Уменьшено с 10Gi для single-node
