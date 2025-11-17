@@ -29,6 +29,16 @@ spec:
         app: redis
     spec:
       automountServiceAccountToken: false
+      
+      # Tolerations для master node
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      
       containers:
         - name: redis
           image: redis:7-alpine
@@ -36,22 +46,31 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          
           command:
             - redis-server
             - --appendonly
             - "yes"
             - --save
             - "60 1"
+            - --maxmemory
+            - "128mb"  # Ограничение памяти для single-node
+            - --maxmemory-policy
+            - "allkeys-lru"
+          
           volumeMounts:
             - name: data
               mountPath: /data
+          
+          # Минимальные resources для single-node
           resources:
             limits:
-              memory: 256Mi
-              cpu: 200m
+              memory: 192Mi   # Уменьшено с 256Mi
+              cpu: 150m       # Уменьшено с 200m
             requests:
-              memory: 128Mi
+              memory: 96Mi    # Уменьшено с 128Mi
               cpu: 50m
+          
           livenessProbe:
             exec:
               command:
@@ -61,6 +80,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          
           readinessProbe:
             exec:
               command:
@@ -70,6 +90,7 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+  
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -79,4 +100,4 @@ spec:
         storageClassName: local-path
         resources:
           requests:
-            storage: 1Gi
+            storage: 512Mi  # Уменьшено с 1Gi для single-node
