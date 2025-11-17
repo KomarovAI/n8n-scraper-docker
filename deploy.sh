@@ -2,7 +2,7 @@
 
 set -e
 
-echo "🚀 Deploying N8N Scraper to Kubernetes..."
+echo "🚀 Deploying N8N Scraper to Kubernetes (Single-Node Mode)..."
 echo ""
 
 # 🔍 Проверка наличия kubectl
@@ -17,6 +17,12 @@ if ! kubectl cluster-info &> /dev/null; then
     echo "Run: kubectl config view"
     exit 1
 fi
+
+echo "ℹ️  Single-Node Cluster Mode"
+echo "   - All pods will run on master node"
+echo "   - Using local-path storage"
+echo "   - Optimized resource limits"
+echo ""
 
 # 🔑 Проверка наличия secret.yaml
 if [ ! -f "manifests/secret.yaml" ]; then
@@ -56,11 +62,15 @@ echo ""
 echo "➡️  Creating namespace..."
 kubectl apply -f manifests/namespace.yaml
 
-# 2. Secrets
+# 2. StorageClass (важно для single-node!)
+echo "➡️  Creating StorageClass (local-path)..."
+kubectl apply -f manifests/storageclass.yaml
+
+# 3. Secrets
 echo "➡️  Creating secrets..."
 kubectl apply -f manifests/secret.yaml
 
-# 3. Базы данных (до N8N!)
+# 4. Базы данных (до N8N!)
 echo "➡️  Deploying PostgreSQL..."
 kubectl apply -f manifests/postgresql.yaml
 
@@ -77,19 +87,19 @@ kubectl wait --for=condition=ready pod -l app=redis -n n8n-scraper --timeout=60s
 
 echo ""
 
-# 4. N8N StatefulSet
+# 5. N8N StatefulSet
 echo "➡️  Deploying N8N..."
 kubectl apply -f manifests/statefulset.yaml
 
-# 5. Services
+# 6. Services
 echo "➡️  Creating services..."
 kubectl apply -f manifests/service.yaml
 
-# 6. NetworkPolicy
+# 7. NetworkPolicy
 echo "➡️  Applying network policies..."
 kubectl apply -f manifests/networkpolicy.yaml
 
-# 7. IngressRoute (последним!)
+# 8. IngressRoute (последним!)
 echo "➡️  Creating IngressRoute..."
 kubectl apply -f manifests/ingressroute.yaml
 
@@ -100,6 +110,9 @@ echo "📊 Check status:"
 echo "  kubectl get pods -n n8n-scraper"
 echo "  kubectl get statefulset -n n8n-scraper"
 echo "  kubectl get pvc -n n8n-scraper"
+echo ""
+echo "💾 Total storage usage (single-node):"
+echo "  N8N: 5Gi, PostgreSQL: 2Gi, Redis: 512Mi = ~7.5Gi total"
 echo ""
 echo "📝 View logs:"
 echo "  kubectl logs -f n8n-scraper-0 -n n8n-scraper"
