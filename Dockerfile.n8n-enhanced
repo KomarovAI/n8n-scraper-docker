@@ -1,0 +1,82 @@
+# ✅ FIX #4: Dockerfile с cheerio, axios, puppeteer-cluster и всеми зависимостями
+FROM n8nio/n8n:latest
+
+# Install system dependencies for Puppeteer
+USER root
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    nodejs \
+    npm \
+    redis \
+    postgresql-client
+
+# Set Puppeteer env vars
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Switch to n8n user
+USER node
+WORKDIR /home/node/.n8n
+
+# Install N8N dependencies
+# ✅ FIX #3: axios (but prefer n8n helpers)
+# ✅ FIX #4: cheerio for HTML parsing
+# ✅ FIX #11: puppeteer-cluster
+RUN npm install -g \
+    axios@^1.6.0 \
+    cheerio@^1.0.0-rc.12 \
+    puppeteer@^21.0.0 \
+    puppeteer-extra@^3.3.6 \
+    puppeteer-extra-plugin-stealth@^2.11.2 \
+    puppeteer-cluster@^0.23.0 \
+    ghost-cursor@^1.1.19 \
+    winston@^3.11.0 \
+    redis@^4.6.0 \
+    prom-client@^15.1.0 \
+    @opentelemetry/sdk-trace-node@^1.19.0 \
+    @opentelemetry/resources@^1.19.0 \
+    @opentelemetry/semantic-conventions@^1.19.0 \
+    @opentelemetry/exporter-jaeger@^1.19.0 \
+    @opentelemetry/sdk-trace-base@^1.19.0 \
+    @opentelemetry/instrumentation@^0.46.0 \
+    @opentelemetry/instrumentation-http@^0.46.0 \
+    @opentelemetry/instrumentation-express@^0.35.0 \
+    @opentelemetry/api@^1.7.0
+
+# Copy custom nodes
+COPY --chown=node:node nodes/ /home/node/.n8n/nodes/
+
+# Copy utilities
+COPY --chown=node:node utils/ /home/node/.n8n/utils/
+
+# Copy monitoring configs
+COPY --chown=node:node monitoring/ /home/node/.n8n/monitoring/
+
+# Copy workflows
+COPY --chown=node:node workflows/ /home/node/.n8n/workflows/
+
+# Copy scrapers
+COPY --chown=node:node scrapers/ /home/node/.n8n/scrapers/
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1
+
+# Expose N8N port
+EXPOSE 5678
+
+# Set environment variables
+ENV N8N_METRICS=true \
+    N8N_DIAGNOSTICS_ENABLED=false \
+    GENERIC_TIMEZONE=Europe/Moscow \
+    EXECUTIONS_DATA_SAVE_ON_ERROR=all \
+    EXECUTIONS_DATA_SAVE_ON_SUCCESS=all \
+    EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+
+# Run N8N
+CMD ["n8n"]
