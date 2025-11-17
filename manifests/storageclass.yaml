@@ -1,0 +1,12 @@
+# StorageClass для single-node кластера
+# Использует hostPath для локального хранилища
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain  # Важно! Не удалять данные при удалении PVC
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
