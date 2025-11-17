@@ -1,0 +1,71 @@
+name: Deploy to Cluster (Single-Node)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-n8n-image:
+    name: Build N8N Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/n8n-custom:latest
+
+  rollout-to-cluster:
+    name: Deploy N8N to Cluster
+    runs-on: ubuntu-latest
+    needs: build-n8n-image
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Set KUBECONFIG
+        run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig && export KUBECONFIG=$PWD/kubeconfig
+
+      - name: Replace image in manifests/statefulset.yaml
+        run: |
+          sed -i "s|image: n8nio/n8n:latest|image: ${{ secrets.DOCKERHUB_USERNAME }}/n8n-custom:latest|g" manifests/statefulset.yaml
+
+      - name: Kubectl apply manifests
+        run: |
+          kubectl apply -f manifests/namespace.yaml
+          kubectl apply -f manifests/storageclass.yaml
+          kubectl apply -f manifests/secret.yaml
+          kubectl apply -f manifests/postgresql.yaml
+          kubectl apply -f manifests/redis.yaml
+          kubectl apply -f manifests/statefulset.yaml
+          kubectl apply -f manifests/service.yaml
+          kubectl apply -f manifests/networkpolicy.yaml
+          kubectl apply -f manifests/ingressroute.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status statefulset/n8n-scraper -n n8n-scraper --timeout=180s
+
+      - name: Print all pods
+        run: kubectl get pods -n n8n-scraper
