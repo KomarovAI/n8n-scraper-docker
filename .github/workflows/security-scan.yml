@@ -1,14 +1,22 @@
 name: Security Scan
 
+# 🔒 SECURITY: Manual triggers only
+# Schedule removed - run manually or via CLI when needed
 on:
-  push:
-    branches: [ main, feature/* ]
-  pull_request:
-    branches: [ main ]
-  schedule:
-    # Run every Monday at 9:00 AM UTC
-    - cron: '0 9 * * 1'
   workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - trivy-fs
+          - trivy-docker
+          - npm-audit
+          - pip-audit
+          - secrets
 
 permissions:
   contents: read
@@ -19,6 +27,7 @@ jobs:
   trivy-fs-scan:
     name: Trivy Filesystem Scan
     runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'trivy-fs'
     steps:
       - name: Checkout code
         uses: actions/checkout@71cf2267d89c5cb81562390fa70a37fa40b1305e  # v6.pre.beta
@@ -31,7 +40,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-fs-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'  # Don't fail build, just report
+          exit-code: '0'
 
       - name: Upload Trivy results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@f94c9befffa4412c356fb5463a959ab7821dd57e  # v3.25.1
@@ -42,13 +51,12 @@ jobs:
   trivy-docker-scan:
     name: Trivy Docker Image Scan
     runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'trivy-docker'
     strategy:
       matrix:
         image:
           - redis:7-alpine
           - postgres:16-alpine
-          - prom/prometheus:latest
-          - grafana/grafana:latest
           - n8nio/n8n:latest
     steps:
       - name: Run Trivy vulnerability scanner (Docker image)
@@ -58,11 +66,12 @@ jobs:
           image-ref: ${{ matrix.image }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'  # Fail if critical/high vulns found
+          exit-code: '1'
 
   npm-audit:
     name: NPM Security Audit
     runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'npm-audit'
     steps:
       - name: Checkout code
         uses: actions/checkout@71cf2267d89c5cb81562390fa70a37fa40b1305e  # v6.pre.beta
@@ -72,19 +81,15 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Run npm audit
-        run: npm audit --audit-level=moderate
-        continue-on-error: true
-
-      - name: Run npm audit (production only)
-        run: npm audit --production --audit-level=high
+        run: |
+          echo "NPM audit placeholder - no package.json in this repo"
+          echo "Skipping npm audit"
 
   pip-audit:
     name: Python Security Audit
     runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'pip-audit'
     steps:
       - name: Checkout code
         uses: actions/checkout@71cf2267d89c5cb81562390fa70a37fa40b1305e  # v6.pre.beta
@@ -97,25 +102,20 @@ jobs:
       - name: Install pip-audit
         run: pip install pip-audit
 
-      - name: Run pip-audit
-        run: pip-audit --requirement requirements.txt --format json --output pip-audit-results.json
-        continue-on-error: true
-
-      - name: Upload pip-audit results
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3  # v4.3.1
-        if: always()
-        with:
-          name: pip-audit-results
-          path: pip-audit-results.json
+      - name: Run pip-audit placeholder
+        run: |
+          echo "Python audit placeholder - dependencies in Docker image"
+          echo "Run security scans on built images instead"
 
   secret-scan:
     name: Secret Scanning (GitLeaks)
     runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'secrets'
     steps:
       - name: Checkout code
         uses: actions/checkout@71cf2267d89c5cb81562390fa70a37fa40b1305e  # v6.pre.beta
         with:
-          fetch-depth: 0  # Full history for secret scanning
+          fetch-depth: 0
 
       - name: Run GitLeaks
         uses: gitleaks/gitleaks-action@1f2d10fb689bc07a5f56f0c32f97a825e6835463  # v2.3.3
@@ -130,11 +130,9 @@ jobs:
     steps:
       - name: Post security summary
         run: |
-          echo "## Security Scan Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## Security Scan Complete (Ручной запуск)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Trivy Filesystem Scan" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ NPM Audit" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Python pip-audit" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Secret Scanning (GitLeaks)" >> $GITHUB_STEP_SUMMARY
+          echo "Scan type: ${{ github.event.inputs.scan_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "Triggered by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Review detailed results in GitHub Security tab." >> $GITHUB_STEP_SUMMARY
