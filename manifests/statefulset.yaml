@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n-scraper
+  namespace: n8n-scraper
+spec:
+  clusterIP: None  # Headless service
+  selector:
+    app: n8n-scraper
+  ports:
+    - name: web
+      port: 5678
+      targetPort: 5678
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: n8n-scraper
+  namespace: n8n-scraper
+spec:
+  serviceName: n8n-scraper
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n-scraper
+  updateStrategy:
+    type: OnDelete
+  template:
+    metadata:
+      labels:
+        app: n8n-scraper
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: n8n
+          image: n8nio/n8n:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5678
+              name: web
+          env:
+            - name: N8N_BASIC_AUTH_ACTIVE
+              value: "true"
+            - name: N8N_BASIC_AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-credentials
+                  key: username
+            - name: N8N_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-credentials
+                  key: password
+            - name: DB_TYPE
+              value: "postgresdb"
+            - name: DB_POSTGRESDB_HOST
+              value: "postgresql.n8n-scraper.svc.cluster.local"
+            - name: DB_POSTGRESDB_DATABASE
+              value: "n8n"
+            - name: DB_POSTGRESDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: username
+            - name: DB_POSTGRESDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: password
+            - name: N8N_METRICS
+              value: "true"
+            - name: N8N_METRICS_PREFIX
+              value: "n8n_"
+          volumeMounts:
+            - name: data
+              mountPath: /home/node/.n8n
+          resources:
+            limits:
+              memory: 2Gi
+              cpu: 2000m
+            requests:
+              memory: 512Mi
+              cpu: 500m
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi
