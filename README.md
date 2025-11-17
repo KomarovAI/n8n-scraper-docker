@@ -2,16 +2,20 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Production Ready](https://img.shields.io/badge/production-ready-green.svg)](https://github.com/KomarovAI/n8n-scraper-workflow)
+[![Audited](https://img.shields.io/badge/audited-2025--11--18-blue.svg)](AUDIT_REPORT.md)
 
 Enterprise-grade web scraping platform для Kubernetes с использованием **StatefulSet** и интеграцией с Traefik.
+
+> 🔍 **[Отчёт аудита](AUDIT_REPORT.md)** - Все критические проблемы исправлены, 15+ оптимизаций применено
 
 ## 🎯 Ключевые особенности
 
 - **StatefulSet** вместо Deployment - стабильная идентичность подов
+- **PostgreSQL + Redis** StatefulSets - полный stack в K8s
 - **Headless Service** - прямое подключение к подам
 - **Автоматический HTTPS** через Traefik + Let's Encrypt
 - **Минималистичная структура** - только необходимые манифесты
-- **Production-ready** - NetworkPolicy, ResourceQuota, Security Context
+- **Production-ready** - NetworkPolicy, Init Containers, Resource Limits
 - **Простой деплой** - `./deploy.sh` и готово
 
 ## 🚀 Быстрый старт
@@ -47,11 +51,12 @@ chmod +x deploy.sh
 # Проверить статус подов
 kubectl get pods -n n8n-scraper
 
-# Проверить логи
+# Просмотреть логи
 kubectl logs -f n8n-scraper-0 -n n8n-scraper
 
 # Проверить StatefulSet
 kubectl get statefulset -n n8n-scraper
+kubectl get pvc -n n8n-scraper
 ```
 
 ### Доступ
@@ -69,13 +74,16 @@ https://n8n.${SERVER_IP}.nip.io
 n8n-scraper-workflow/
 ├── manifests/              # Kubernetes манифесты
 │   ├── namespace.yaml       # Namespace
-│   ├── statefulset.yaml     # StatefulSet + Headless Service
+│   ├── statefulset.yaml     # N8N StatefulSet + Headless Service
+│   ├── postgresql.yaml      # PostgreSQL StatefulSet
+│   ├── redis.yaml           # Redis StatefulSet
 │   ├── service.yaml         # External Service для Traefik
 │   ├── ingressroute.yaml    # Traefik IngressRoute с HTTPS
 │   ├── networkpolicy.yaml   # Сетевые политики
 │   └── secret.yaml.example  # Пример secrets
 ├── deploy.sh               # Скрипт деплоя
 ├── uninstall.sh            # Скрипт удаления
+├── AUDIT_REPORT.md        # 🔍 Отчёт аудита
 ├── docker-compose.yml      # Для локальной разработки
 └── docs/                   # Дополнительная документация
 ```
@@ -87,14 +95,18 @@ n8n-scraper-workflow/
 - Ingress от Traefik на порт 5678
 - Egress к PostgreSQL (5432)
 - Egress к Redis (6379)
-- Egress для scraping (80, 443)
+- Egress для scraping (80, 443) с CIDR filtering
 - DNS резолюция
+- Исключены локальные сети и cloud metadata endpoints
 
 ### Security Context
 - `runAsNonRoot: true`
 - `runAsUser: 1000`
 - `capabilities: drop ALL`
 - `privileged: false`
+
+### Init Containers
+- Проверка доступности PostgreSQL перед запуском N8N
 
 ### Secrets Management
 Все секреты хранятся в Kubernetes Secrets:
@@ -140,9 +152,9 @@ Traefik (порты 80/443)
    ↓ Let's Encrypt SSL
 IngressRoute → n8n-scraper-external Service (порт 5678)
    ↓
-n8n-scraper StatefulSet
+n8n-scraper StatefulSet (Init Container → N8N)
    ↓
-PostgreSQL + Redis
+PostgreSQL + Redis StatefulSets
 ```
 
 ## 💾 Persistent Storage
@@ -159,12 +171,14 @@ volumeClaimTemplates:
       storageClassName: local-path
       resources:
         requests:
-          storage: 10Gi
+          storage: 10Gi  # N8N
+          # 5Gi PostgreSQL, 1Gi Redis
 ```
 
 Каждый под получает свой собственный PVC:
 - `data-n8n-scraper-0`
-- `data-n8n-scraper-1` (при scale)
+- `data-postgresql-0`
+- `data-redis-0`
 
 ## 🔄 Масштабирование
 
@@ -192,7 +206,7 @@ chmod +x uninstall.sh
 
 ```bash
 # Liveness probe
-kubectl exec -it n8n-scraper-0 -n n8n-scraper -- curl http://localhost:5678/healthz
+kubectl exec -it n8n-scraper-0 -n n8n-scraper -- curl http://localhost:5678/
 
 # Логи
 kubectl logs -f n8n-scraper-0 -n n8n-scraper
@@ -252,7 +266,9 @@ kubectl get certificates -A
 
 ## 📚 Дополнительная документация
 
+- **[🔍 AUDIT_REPORT.md](AUDIT_REPORT.md)** - Полный отчёт аудита (9 критических проблем исправлено)
 - [SECURITY.md](SECURITY.md) - Руководство по безопасности
+- [README-prod-quickstart.md](README-prod-quickstart.md) - Быстрый старт в production
 - [docker-compose.yml](docker-compose.yml) - Локальная разработка
 - [docs/](docs/) - Расширенная документация
 
