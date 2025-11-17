@@ -3,6 +3,10 @@
 .env.local
 .env.*.local
 
+# Kubernetes secrets
+manifests/secret.yaml
+*.secret.yaml
+
 # Logs
 *.log
 logs/
