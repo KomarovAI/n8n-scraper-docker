@@ -29,6 +29,16 @@ spec:
         app: postgresql
     spec:
       automountServiceAccountToken: false
+      
+      # Tolerations для master node
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -36,6 +46,7 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
+          
           env:
             - name: POSTGRES_DB
               value: "n8n"
@@ -51,16 +62,20 @@ spec:
                   key: password
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
+          
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+          
+          # Уменьшенные resources для single-node
           resources:
             limits:
-              memory: 512Mi
-              cpu: 500m
+              memory: 384Mi   # Уменьшено с 512Mi
+              cpu: 400m       # Уменьшено с 500m
             requests:
-              memory: 256Mi
+              memory: 192Mi   # Уменьшено с 256Mi
               cpu: 100m
+          
           livenessProbe:
             exec:
               command:
@@ -71,6 +86,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          
           readinessProbe:
             exec:
               command:
@@ -81,6 +97,7 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+  
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -90,4 +107,4 @@ spec:
         storageClassName: local-path
         resources:
           requests:
-            storage: 5Gi
+            storage: 2Gi  # Уменьшено с 5Gi для single-node
