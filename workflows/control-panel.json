@@ -1,0 +1,48 @@
+{
+  "name": "Scraper Control Panel",
+  "nodes": [
+    {
+      "name": "Admin Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "admin/settings",
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      }
+    },
+    {
+      "name": "Validate Admin Request",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "functionCode": "// Валидация прав доступа\nconst adminToken = $json.adminToken;\nif (adminToken !== process.env.ADMIN_TOKEN) {\n  throw new Error('Unauthorized');\n}\n\nconst settings = {\n  maxRunners: parseInt($json.maxRunners) || 1,\n  runnerType: $json.runnerType || 'nodriver',\n  timeout: parseInt($json.timeout) || 10,\n  enableFallback: $json.enableFallback === true\n};\n\n// Валидация значений\nif (settings.maxRunners < 1 || settings.maxRunners > 10) {\n  throw new Error('maxRunners must be between 1 and 10');\n}\n\nif (!['nodriver', 'playwright', 'http_basic'].includes(settings.runnerType)) {\n  throw new Error('Invalid runnerType');\n}\n\nreturn { json: settings };"
+      }
+    },
+    {
+      "name": "Save to Redis",
+      "type": "n8n-nodes-base.redis",
+      "parameters": {
+        "operation": "set",
+        "key": "scraper:settings",
+        "value": "={{JSON.stringify($json)}}"
+      }
+    },
+    {
+      "name": "Return Settings",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{JSON.stringify({success: true, settings: $json}, null, 2)}}"
+      }
+    }
+  ],
+  "connections": {
+    "Admin Webhook": { "main": [[{"node": "Validate Admin Request", "type": "main", "index": 0}]] },
+    "Validate Admin Request": { "main": [[{"node": "Save to Redis", "type": "main", "index": 0}]] },
+    "Save to Redis": { "main": [[{"node": "Return Settings", "type": "main", "index": 0}]] }
+  },
+  "settings": {
+    "executionTimeout": 120,
+    "saveManualExecutions": true
+  },
+  "tags": [{"name": "admin"},{"name": "control-panel"}]
+}
