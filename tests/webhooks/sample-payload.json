@@ -1,0 +1,10 @@
+{
+  "test": "data",
+  "timestamp": "2025-11-27T09:57:00Z",
+  "source": "smoke-test",
+  "payload": {
+    "message": "Test webhook payload",
+    "value": 123,
+    "active": true
+  }
+}
