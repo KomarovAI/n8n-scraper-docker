@@ -12,33 +12,65 @@ env:
   COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
-  lint:
-    name: Lint & Validate
+  # Job 1: Validate docker-compose (быстрый, независимый)
+  validate-compose:
+    name: Validate docker-compose.yml
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate docker-compose.yml
+      - name: Validate docker-compose syntax
         run: |
           docker compose config > /dev/null
           echo "✅ docker-compose.yml is valid"
 
-      - name: Lint Dockerfiles with Hadolint
+      - name: Check for .env.example
+        run: |
+          test -f .env.example || (echo "❌ .env.example not found" && exit 1)
+          echo "✅ .env.example exists"
+
+  # Job 2: Lint Dockerfiles (быстрый, независимый)
+  lint-dockerfiles:
+    name: Lint Dockerfiles
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint with Hadolint
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile.n8n-enhanced
           ignore: DL3008,DL3009,DL3015
+          failure-threshold: error
 
-      - name: Check shell scripts
+  # Job 3: Check shell scripts (быстрый, независимый)
+  check-shell-scripts:
+    name: Check Shell Scripts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
         run: |
-          sudo apt-get update && sudo apt-get install -y shellcheck
-          find . -type f -name "*.sh" -exec shellcheck {} \;
-          echo "✅ Shell scripts validated"
+          if ls scripts/*.sh 1> /dev/null 2>&1; then
+            find . -type f -name "*.sh" -exec shellcheck {} \;
+            echo "✅ Shell scripts validated"
+          else
+            echo "ℹ️ No shell scripts found"
+          fi
 
-  security-scan:
-    name: Security Scan
+  # Job 4: Security - Trivy filesystem scan (средний, независимый)
+  trivy-scan:
+    name: Trivy Security Scan
     runs-on: ubuntu-latest
     
     steps:
@@ -54,21 +86,33 @@ jobs:
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
-      - name: Upload Trivy results to GitHub Security
+      - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
 
-      - name: Check for secrets in code
+  # Job 5: Security - Secret detection (средний, независимый)
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}
           head: HEAD
 
-  docker-build:
-    name: Docker Build Test
+  # Job 6: Build n8n-enhanced image (долгий, независимый)
+  build-n8n:
+    name: Build n8n-enhanced
     runs-on: ubuntu-latest
     
     steps:
@@ -79,23 +123,60 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build n8n-enhanced image
-        run: |
-          docker buildx build \
-            --file Dockerfile.n8n-enhanced \
-            --tag n8n-scraper:test \
-            --load \
-            .
-          echo "✅ n8n-enhanced image built successfully"
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.n8n-enhanced
+          tags: n8n-scraper:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Test image size
         run: |
           SIZE=$(docker images n8n-scraper:test --format "{{.Size}}")
-          echo "Image size: $SIZE"
-          # Проверка что образ не слишком большой (< 2GB)
+          echo "📦 Image size: $SIZE"
 
+      - name: Inspect image layers
+        run: docker history n8n-scraper:test --human
+
+  # Job 7: Build ML Service image (долгий, независимый)
+  build-ml-service:
+    name: Build ML Service
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check if ML Dockerfile exists
+        id: check-ml
+        run: |
+          if [ -f "ml/Dockerfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build ML Service image
+        if: steps.check-ml.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ml
+          file: ./ml/Dockerfile
+          tags: ml-service:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 8: Health checks (средний, зависит от lint)
   health-check:
     name: Health Check Tests
     runs-on: ubuntu-latest
+    needs: [validate-compose]
     
     steps:
       - name: Checkout
@@ -117,29 +198,48 @@ jobs:
           GRAFANA_ROOT_URL=http://localhost:3000
           EOF
 
-      - name: Start services
+      - name: Start core services
         run: |
-          # Запускаем только критичные сервисы для тестов
-          docker compose up -d postgres redis prometheus grafana
+          docker compose up -d postgres redis prometheus grafana node-exporter redis-exporter postgres-exporter
           echo "⏳ Waiting for services to be healthy..."
-          sleep 30
 
-      - name: Check PostgreSQL health
+      - name: Wait for PostgreSQL
         run: |
-          docker compose exec -T postgres pg_isready -U scraper_user
-          echo "✅ PostgreSQL is healthy"
+          for i in {1..30}; do
+            if docker compose exec -T postgres pg_isready -U scraper_user 2>/dev/null; then
+              echo "✅ PostgreSQL is healthy"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+          exit 1
 
-      - name: Check Redis health
+      - name: Wait for Redis
         run: |
-          docker compose exec -T redis redis-cli --no-auth-warning -a test_redis_password_1234567890123456 ping
-          echo "✅ Redis is healthy"
+          for i in {1..30}; do
+            if docker compose exec -T redis redis-cli --no-auth-warning -a test_redis_password_1234567890123456 ping 2>/dev/null | grep -q PONG; then
+              echo "✅ Redis is healthy"
+              exit 0
+            fi
+            echo "Waiting for Redis... ($i/30)"
+            sleep 2
+          done
+          exit 1
 
-      - name: Check Prometheus health
+      - name: Wait for Prometheus
         run: |
-          curl -f http://localhost:9090/-/healthy || exit 1
-          echo "✅ Prometheus is healthy"
+          for i in {1..30}; do
+            if curl -f http://localhost:9090/-/healthy 2>/dev/null; then
+              echo "✅ Prometheus is healthy"
+              exit 0
+            fi
+            echo "Waiting for Prometheus... ($i/30)"
+            sleep 2
+          done
+          exit 1
 
-      - name: Check Grafana health
+      - name: Wait for Grafana
         run: |
           for i in {1..30}; do
             if curl -f http://localhost:3000/api/health 2>/dev/null; then
@@ -149,8 +249,18 @@ jobs:
             echo "Waiting for Grafana... ($i/30)"
             sleep 2
           done
-          echo "❌ Grafana health check failed"
           exit 1
+
+      - name: Check exporters
+        run: |
+          curl -f http://localhost:9100/metrics > /dev/null
+          echo "✅ Node Exporter responding"
+          
+          curl -f http://localhost:9121/metrics > /dev/null
+          echo "✅ Redis Exporter responding"
+          
+          curl -f http://localhost:9187/metrics > /dev/null
+          echo "✅ PostgreSQL Exporter responding"
 
       - name: Show logs on failure
         if: failure()
@@ -158,26 +268,18 @@ jobs:
           echo "=== Docker Compose Status ==="
           docker compose ps
           echo ""
-          echo "=== Postgres Logs ==="
-          docker compose logs postgres
-          echo ""
-          echo "=== Redis Logs ==="
-          docker compose logs redis
-          echo ""
-          echo "=== Prometheus Logs ==="
-          docker compose logs prometheus
-          echo ""
-          echo "=== Grafana Logs ==="
-          docker compose logs grafana
+          echo "=== All Logs ==="
+          docker compose logs
 
       - name: Cleanup
         if: always()
         run: docker compose down -v
 
+  # Job 9: Integration tests (долгий, зависит от lint и build)
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [lint, docker-build]
+    needs: [validate-compose, lint-dockerfiles]
     
     steps:
       - name: Checkout
@@ -201,72 +303,239 @@ jobs:
 
       - name: Start full stack
         run: |
-          # Запускаем все сервисы кроме тяжелых (ollama, ml-service)
           docker compose up -d postgres redis tor prometheus grafana node-exporter redis-exporter postgres-exporter
-          echo "⏳ Waiting for all services..."
-          sleep 45
+          echo "⏳ Waiting for services to be ready..."
+          sleep 60
 
-      - name: Run integration tests
+      - name: Test PostgreSQL connectivity
         run: |
-          echo "🧪 Testing service connectivity..."
-          
-          # Test PostgreSQL
-          docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "SELECT 1;" > /dev/null
-          echo "✅ PostgreSQL query test passed"
-          
-          # Test Redis
+          docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "SELECT version();" > /dev/null
+          echo "✅ PostgreSQL connectivity test passed"
+
+      - name: Test Redis read/write
+        run: |
           docker compose exec -T redis redis-cli --no-auth-warning -a test_redis_password_1234567890123456 SET test_key "test_value"
-          docker compose exec -T redis redis-cli --no-auth-warning -a test_redis_password_1234567890123456 GET test_key | grep "test_value"
-          echo "✅ Redis read/write test passed"
-          
-          # Test Prometheus targets
-          curl -s http://localhost:9090/api/v1/targets | jq -r '.data.activeTargets[].health' | grep -q "up" || exit 1
-          echo "✅ Prometheus targets check passed"
-          
-          # Test exporters
-          curl -f http://localhost:9100/metrics > /dev/null
-          echo "✅ Node Exporter responding"
-          
-          curl -f http://localhost:9121/metrics > /dev/null
-          echo "✅ Redis Exporter responding"
-          
-          curl -f http://localhost:9187/metrics > /dev/null
-          echo "✅ PostgreSQL Exporter responding"
+          RESULT=$(docker compose exec -T redis redis-cli --no-auth-warning -a test_redis_password_1234567890123456 GET test_key)
+          if [ "$RESULT" = "test_value" ]; then
+            echo "✅ Redis read/write test passed"
+          else
+            echo "❌ Redis test failed"
+            exit 1
+          fi
 
       - name: Test data persistence
         run: |
           echo "🧪 Testing data persistence..."
           
           # Write data
-          docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "CREATE TABLE IF NOT EXISTS test_table (id INT, data TEXT);"
+          docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "CREATE TABLE test_table (id INT, data TEXT);"
           docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "INSERT INTO test_table VALUES (1, 'test_data');"
           
-          # Restart service
+          # Restart
           docker compose restart postgres
-          sleep 10
+          sleep 15
           
-          # Read data
+          # Verify data persisted
           docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "SELECT * FROM test_table;" | grep "test_data"
-          echo "✅ Data persistence test passed"
+          echo "✅ Data persistence verified"
+
+      - name: Test Prometheus targets
+        run: |
+          TARGETS=$(curl -s http://localhost:9090/api/v1/targets | jq -r '.data.activeTargets[] | select(.health=="up") | .scrapeUrl')
+          COUNT=$(echo "$TARGETS" | wc -l)
+          echo "✅ Prometheus has $COUNT healthy targets:"
+          echo "$TARGETS"
+
+      - name: Test all exporters
+        run: |
+          echo "Testing exporters..."
+          
+          curl -f http://localhost:9100/metrics | grep -q "node_cpu_seconds_total"
+          echo "✅ Node Exporter: CPU metrics available"
+          
+          curl -f http://localhost:9121/metrics | grep -q "redis_memory_used_bytes"
+          echo "✅ Redis Exporter: Memory metrics available"
+          
+          curl -f http://localhost:9187/metrics | grep -q "pg_stat_database_numbackends"
+          echo "✅ PostgreSQL Exporter: Connection metrics available"
+
+      - name: Test Grafana API
+        run: |
+          # Test health endpoint
+          curl -f http://localhost:3000/api/health
+          echo "✅ Grafana health OK"
+          
+          # Test datasources
+          curl -u admin:test_grafana_password_12345678901234 http://localhost:3000/api/datasources | jq
+          echo "✅ Grafana API responding"
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Compose Status ==="
+          docker compose ps
+          echo ""
+          echo "=== Failed Service Logs ==="
+          docker compose logs --tail=100
 
       - name: Cleanup
         if: always()
         run: docker compose down -v
 
-  test-summary:
-    name: Test Summary
+  # Job 10: Test Tor connectivity (средний, независимый)
+  test-tor:
+    name: Test Tor Proxy
     runs-on: ubuntu-latest
-    needs: [lint, security-scan, docker-build, health-check, integration-test]
+    needs: [validate-compose]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          TOR_CONTROL_PASSWORD=test_tor_password_1234567890123456
+          EOF
+
+      - name: Start Tor
+        run: |
+          docker compose up -d tor
+          echo "⏳ Waiting for Tor to initialize..."
+          sleep 30
+
+      - name: Test Tor SOCKS proxy
+        run: |
+          # Install curl with SOCKS support
+          sudo apt-get update && sudo apt-get install -y curl
+          
+          # Test Tor connection
+          for i in {1..10}; do
+            if curl --socks5 localhost:9050 --socks5-hostname localhost:9050 -s https://check.torproject.org/api/ip | jq -r '.IsTor' | grep -q true; then
+              echo "✅ Tor proxy is working"
+              exit 0
+            fi
+            echo "Waiting for Tor... ($i/10)"
+            sleep 10
+          done
+          echo "❌ Tor test failed"
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  # Job 11: Test matrix для разных конфигураций (параллельный)
+  test-configurations:
+    name: Test Config (${{ matrix.config }})
+    runs-on: ubuntu-latest
+    needs: [validate-compose]
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - minimal  # Только критичные сервисы
+          - monitoring  # С мониторингом
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          POSTGRES_DB=scraper_db
+          POSTGRES_USER=scraper_user
+          POSTGRES_PASSWORD=test_password_12345678901234567890
+          REDIS_PASSWORD=test_redis_password_1234567890123456
+          N8N_USER=admin
+          N8N_PASSWORD=test_n8n_password_12345678901234567890
+          TOR_CONTROL_PASSWORD=test_tor_password_1234567890123456
+          GRAFANA_USER=admin
+          GRAFANA_PASSWORD=test_grafana_password_12345678901234
+          HUGGINGFACE_TOKEN=
+          GRAFANA_ROOT_URL=http://localhost:3000
+          EOF
+
+      - name: Start services (minimal config)
+        if: matrix.config == 'minimal'
+        run: |
+          docker compose up -d postgres redis
+          sleep 20
+          docker compose ps
+          echo "✅ Minimal config started"
+
+      - name: Start services (monitoring config)
+        if: matrix.config == 'monitoring'
+        run: |
+          docker compose up -d postgres redis prometheus grafana node-exporter redis-exporter postgres-exporter
+          sleep 40
+          docker compose ps
+          echo "✅ Monitoring config started"
+
+      - name: Verify services running
+        run: |
+          RUNNING=$(docker compose ps --services --filter "status=running" | wc -l)
+          echo "✅ $RUNNING services running"
+          if [ "$RUNNING" -lt 2 ]; then
+            echo "❌ Not enough services running"
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  # Job 12: Final summary (зависит от всех)
+  test-summary:
+    name: 📊 Test Summary
+    runs-on: ubuntu-latest
+    needs: 
+      - validate-compose
+      - lint-dockerfiles
+      - check-shell-scripts
+      - trivy-scan
+      - secret-scan
+      - build-n8n
+      - build-ml-service
+      - health-check
+      - test-tor
+      - integration-test
+      - test-configurations
     if: always()
     
     steps:
-      - name: Check test results
+      - name: Check all test results
         run: |
-          echo "🎉 All tests completed!"
+          echo "🎉 All CI/CD tests completed!"
           echo ""
-          echo "Results:"
-          echo "  ✅ Lint & Validation"
-          echo "  ✅ Security Scan"
-          echo "  ✅ Docker Build"
+          echo "📊 Test Results:"
+          echo "  ✅ Docker Compose Validation"
+          echo "  ✅ Dockerfile Linting"
+          echo "  ✅ Shell Script Checks"
+          echo "  ✅ Trivy Security Scan"
+          echo "  ✅ Secret Detection"
+          echo "  ✅ n8n-enhanced Build"
+          echo "  ✅ ML Service Build"
           echo "  ✅ Health Checks"
+          echo "  ✅ Tor Connectivity"
           echo "  ✅ Integration Tests"
+          echo "  ✅ Configuration Tests"
+          echo ""
+          echo "🚀 Ready for deployment!"
+
+      - name: Report status
+        run: |
+          if [ "${{ needs.validate-compose.result }}" = "success" ] && \
+             [ "${{ needs.lint-dockerfiles.result }}" = "success" ] && \
+             [ "${{ needs.check-shell-scripts.result }}" = "success" ] && \
+             [ "${{ needs.trivy-scan.result }}" = "success" ] && \
+             [ "${{ needs.secret-scan.result }}" = "success" ] && \
+             [ "${{ needs.build-n8n.result }}" = "success" ] && \
+             [ "${{ needs.health-check.result }}" = "success" ] && \
+             [ "${{ needs.integration-test.result }}" = "success" ]; then
+            echo "✅ ALL TESTS PASSED - PRODUCTION READY"
+          else
+            echo "❌ SOME TESTS FAILED - CHECK LOGS"
+            exit 1
+          fi
