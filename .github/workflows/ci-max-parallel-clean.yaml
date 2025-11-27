@@ -214,7 +214,7 @@ jobs:
   essential-tests:
     name: 🧪 Essential Test
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     needs: fast-validation
     strategy:
       fail-fast: false
@@ -263,15 +263,59 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start services
-        run: docker compose up -d ${{ matrix.test.services }}
-      
-      - name: ⏱️ Wait for n8n
+      - name: 🚀 Start services (parallel)
         run: |
-          for i in {1..40}; do
-            curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; break; }
-            sleep 3
+          # Запускаем postgres+redis сначала
+          docker compose up -d postgres redis
+          echo "Waiting for database..."
+          sleep 10
+          
+          # Теперь запускаем n8n
+          docker compose up -d n8n
+          echo "n8n started, waiting for initialization..."
+      
+      - name: ⏱️ Wait for n8n (max 3 min)
+        run: |
+          echo "⌛ Waiting for n8n to start (max 180 seconds)..."
+          START=$(date +%s)
+          
+          # Показываем логи в фоне
+          docker compose logs -f n8n &
+          LOGS_PID=$!
+          
+          for i in {1..90}; do
+            ELAPSED=$(($(date +%s) - START))
+            
+            # Пробуем оба endpoint'а
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
+               curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              kill $LOGS_PID 2>/dev/null || true
+              echo "✅ n8n is ready after ${ELAPSED}s!"
+              docker compose ps
+              exit 0
+            fi
+            
+            # Прогресс каждые 30с
+            if [ $((i % 15)) -eq 0 ]; then
+              echo "⌛ Still waiting... (${ELAPSED}s elapsed)"
+              docker compose ps n8n postgres redis
+            fi
+            
+            sleep 2
           done
+          
+          # Timeout - показываем диагностику
+          kill $LOGS_PID 2>/dev/null || true
+          echo "❌ n8n failed to start after 180 seconds"
+          echo "=== Container status ==="
+          docker compose ps
+          echo "=== n8n logs ==="
+          docker compose logs --tail=50 n8n
+          echo "=== PostgreSQL status ==="
+          docker compose exec -T postgres pg_isready || true
+          echo "=== Redis status ==="
+          docker compose exec -T redis redis-cli ping || true
+          exit 1
       
       - name: 🧪 Run test
         id: test
@@ -290,6 +334,7 @@ jobs:
           DURATION=$((END_TIME - START_TIME))
           
           cp /tmp/essential-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/essential-${{ matrix.test.slug }}-test.log
+          docker compose logs n8n > /tmp/logs/essential-${{ matrix.test.slug }}-n8n.log 2>&1 || true
           
           jq -n \
             --arg job "essential-${{ matrix.test.slug }}" \
@@ -317,7 +362,7 @@ jobs:
   e2e-tests:
     name: 🎯 E2E Test
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     needs: fast-validation
     outputs:
       duration: ${{ steps.save.outputs.duration }}
@@ -369,15 +414,31 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start stack
-        run: docker compose up -d n8n postgres redis
-      
-      - name: ⏱️ Wait for n8n
+      - name: 🚀 Start stack (parallel)
         run: |
-          for i in {1..40}; do
-            curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; break; }
-            sleep 3
+          docker compose up -d postgres redis
+          sleep 10
+          docker compose up -d n8n
+      
+      - name: ⏱️ Wait for n8n (max 3 min)
+        run: |
+          echo "⌛ Waiting for n8n..."
+          START=$(date +%s)
+          
+          for i in {1..90}; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
+               curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              ELAPSED=$(($(date +%s) - START))
+              echo "✅ n8n ready after ${ELAPSED}s"
+              exit 0
+            fi
+            [ $((i % 15)) -eq 0 ] && echo "⌛ Waiting... ($((i * 2))s)"
+            sleep 2
           done
+          
+          echo "❌ Timeout"
+          docker compose logs --tail=50 n8n
+          exit 1
       
       - name: 📦 Install deps
         working-directory: tests/e2e
@@ -407,6 +468,7 @@ jobs:
           echo "duration=$DURATION" >> $GITHUB_OUTPUT
           
           cp /tmp/e2e-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/e2e-test.log
+          docker compose logs n8n > /tmp/logs/e2e-n8n.log 2>&1 || true
           
           jq -n \
             --arg job "e2e" \
@@ -433,7 +495,7 @@ jobs:
   n8n-integration:
     name: 🌐 Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     needs: [smoke-tests, essential-tests]
     outputs:
       duration: ${{ steps.save.outputs.duration }}
@@ -478,15 +540,30 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start n8n
-        run: docker compose up -d n8n postgres redis
-      
-      - name: 🔍 Verify
+      - name: 🚀 Start n8n (parallel)
         run: |
-          for i in {1..40}; do
-            curl -sf http://localhost:5678 > /dev/null && { echo "Accessible"; exit 0; }
-            sleep 3
+          docker compose up -d postgres redis
+          sleep 10
+          docker compose up -d n8n
+      
+      - name: 🔍 Verify (max 3 min)
+        run: |
+          echo "⌛ Verifying n8n..."
+          START=$(date +%s)
+          
+          for i in {1..90}; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
+               curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              ELAPSED=$(($(date +%s) - START))
+              echo "✅ Accessible after ${ELAPSED}s"
+              exit 0
+            fi
+            [ $((i % 15)) -eq 0 ] && echo "⌛ Waiting... ($((i * 2))s)"
+            sleep 2
           done
+          
+          echo "❌ Failed"
+          docker compose logs --tail=50 n8n
           exit 1
       
       - name: 🧪 Run test
@@ -513,6 +590,7 @@ jobs:
           echo "duration=$DURATION" >> $GITHUB_OUTPUT
           
           cp /tmp/integration-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/integration-test.log
+          docker compose logs n8n > /tmp/logs/integration-n8n.log 2>&1 || true
           
           jq -n \
             --arg job "integration" \
@@ -539,7 +617,7 @@ jobs:
   master-e2e:
     name: 🏆 Master E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration]
     outputs:
       duration: ${{ steps.save.outputs.duration }}
@@ -584,18 +662,44 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start full stack
-        run: docker compose up -d
-      
-      - name: ⏱️ Wait for services
+      - name: 🚀 Start full stack (optimized)
         run: |
-          echo "Waiting for 8 services..."
-          sleep 30
-          for i in {1..30}; do
-            RUNNING=$(docker compose ps | grep -c "Up" || echo 0)
-            [ "$RUNNING" -ge 6 ] && { echo "Ready ($RUNNING)"; sleep 10; break; }
-            sleep 3
+          # Запускаем в правильном порядке
+          docker compose up -d postgres redis
+          sleep 15
+          docker compose up -d n8n
+          sleep 10
+          docker compose up -d tor prometheus grafana
+      
+      - name: ⏱️ Wait for services (max 4 min)
+        run: |
+          echo "⌛ Waiting for all services..."
+          START=$(date +%s)
+          
+          # Ждем n8n
+          for i in {1..120}; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
+               curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              ELAPSED=$(($(date +%s) - START))
+              echo "✅ n8n ready after ${ELAPSED}s"
+              break
+            fi
+            [ $((i % 20)) -eq 0 ] && echo "⌛ n8n starting... ($((i * 2))s)"
+            sleep 2
           done
+          
+          # Проверяем все сервисы
+          sleep 10
+          RUNNING=$(docker compose ps | grep -c "Up" || echo 0)
+          echo "📊 Running services: $RUNNING"
+          
+          if [ "$RUNNING" -ge 6 ]; then
+            echo "✅ All services ready"
+            docker compose ps
+          else
+            echo "⚠️ Only $RUNNING services up, but continuing..."
+            docker compose ps
+          fi
       
       - name: 🏆 Run MASTER TEST
         id: test
