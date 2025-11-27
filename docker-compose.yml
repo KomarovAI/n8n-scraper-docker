@@ -113,6 +113,48 @@ services:
       start_period: 40s
     restart: unless-stopped
 
+  # Node Exporter for system metrics (CPU, RAM, Disk)
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: n8n-node-exporter
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  # Redis Exporter for Redis metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: n8n-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PostgreSQL Exporter for database metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: n8n-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-scraper_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-scraper_db}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Prometheus for metrics collection
   prometheus:
     image: prom/prometheus:latest
@@ -121,12 +163,17 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts:/etc/prometheus/alerts
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-admin-api'
+    depends_on:
+      - node-exporter
+      - redis-exporter
+      - postgres-exporter
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:9090/-/healthy"]
       interval: 30s
@@ -148,6 +195,7 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana-datasources:/etc/grafana/provisioning/datasources
     depends_on:
       - prometheus
     restart: unless-stopped
