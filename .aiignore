@@ -1,4 +1,4 @@
-# .aiignore - AI Context Optimization
+# .aiignore - AI Context Optimization v1.1
 # Этот файл исключает ненужные файлы из AI context
 
 # Build artifacts & Dependencies
@@ -107,6 +107,14 @@ grafana_data/
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+
+# Archive & Historical (v1.1 optimization)
+.archive/
+docs/migration/
+*.backup
+*_old.*
+*_deprecated.*
+*_archive.*
 
 # AI-specific: focus on code & docs only
 # Нейросеть должна видеть только:
