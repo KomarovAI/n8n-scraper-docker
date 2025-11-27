@@ -136,14 +136,29 @@ jobs:
       - name: 📦 Load image
         run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env
+      - name: 📝 Create .env from secrets
         run: |
-          cp .env.example .env
-          sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_REDIS_PASSWORD/test_redis_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_N8N_PASSWORD/test_n8n_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
+          cat > .env << EOF
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          echo "✅ .env file created from GitHub Secrets"
       
       - name: 🚀 Start service
         run: docker-compose up -d ${{ matrix.test.services }}
@@ -224,14 +239,29 @@ jobs:
       - name: 📦 Load image
         run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env
+      - name: 📝 Create .env from secrets
         run: |
-          cp .env.example .env
-          sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_REDIS_PASSWORD/test_redis_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_N8N_PASSWORD/test_n8n_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
+          cat > .env << EOF
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          echo "✅ .env file created from GitHub Secrets"
       
       - name: 🚀 Start services
         run: docker-compose up -d ${{ matrix.test.services }}
@@ -315,14 +345,29 @@ jobs:
       - name: 📦 Load image
         run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env
+      - name: 📝 Create .env from secrets
         run: |
-          cp .env.example .env
-          sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_REDIS_PASSWORD/test_redis_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_N8N_PASSWORD/test_n8n_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
+          cat > .env << EOF
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          echo "✅ .env file created from GitHub Secrets"
       
       - name: 🚀 Start stack
         run: docker-compose up -d n8n postgres redis
@@ -409,14 +454,29 @@ jobs:
       - name: 📦 Load image
         run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env
+      - name: 📝 Create .env from secrets
         run: |
-          cp .env.example .env
-          sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_REDIS_PASSWORD/test_redis_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_N8N_PASSWORD/test_n8n_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
+          cat > .env << EOF
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          echo "✅ .env file created from GitHub Secrets"
       
       - name: 🚀 Start n8n
         run: docker-compose up -d n8n postgres redis
@@ -500,14 +560,29 @@ jobs:
       - name: 📦 Load image
         run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env
+      - name: 📝 Create .env from secrets
         run: |
-          cp .env.example .env
-          sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_REDIS_PASSWORD/test_redis_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_N8N_PASSWORD/test_n8n_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
-          sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
+          cat > .env << EOF
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          echo "✅ .env file created from GitHub Secrets"
       
       - name: 🚀 Start full stack
         run: docker-compose up -d
@@ -706,21 +781,31 @@ jobs:
       
       - name: 📝 Generate diagnostic
         run: |
-          printf "# CI/CD Report\\n\\n## Results\\n\\n" > logs/diagnostic.md
-          printf "- Fast Validation: ${{ needs.fast-validation.result }}\\n" >> logs/diagnostic.md
-          printf "- Smoke Tests: ${{ needs.smoke-tests.result }}\\n" >> logs/diagnostic.md
-          printf "- Essential Tests: ${{ needs.essential-tests.result }}\\n" >> logs/diagnostic.md
-          printf "- E2E Tests: ${{ needs.e2e-tests.result }}\\n" >> logs/diagnostic.md
-          printf "- Integration: ${{ needs.n8n-integration.result }}\\n" >> logs/diagnostic.md
-          printf "- Master E2E: ${{ needs.master-e2e.result }}\\n\\n" >> logs/diagnostic.md
-          printf "## Stats\\n\\n- Passed: ${PASSED:-0}\\n- Failed: ${FAILED:-0}\\n- Rate: ${SUCCESS_RATE:-0}%%\\n" >> logs/diagnostic.md
+          cat > logs/diagnostic.md << EOF
+          # CI/CD Report
+          
+          ## Results
+          
+          - Fast Validation: ${{ needs.fast-validation.result }}
+          - Smoke Tests: ${{ needs.smoke-tests.result }}
+          - Essential Tests: ${{ needs.essential-tests.result }}
+          - E2E Tests: ${{ needs.e2e-tests.result }}
+          - Integration: ${{ needs.n8n-integration.result }}
+          - Master E2E: ${{ needs.master-e2e.result }}
+          
+          ## Stats
+          
+          - Passed: ${PASSED:-0}
+          - Failed: ${FAILED:-0}
+          - Rate: ${SUCCESS_RATE:-0}%
+          EOF
           
           echo "Diagnostic generated"
         continue-on-error: true
       
       - name: 📝 Workflow info
         run: |
-          printf "Run: ${{ github.run_number }}\\nCommit: ${{ github.sha }}\\nBranch: ${{ github.ref_name }}\\n" > logs/workflow-info.txt
+          printf "Run: ${{ github.run_number }}\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref_name }}\n" > logs/workflow-info.txt
           ls -1 logs/ > logs/index.txt
           echo "Info generated"
         continue-on-error: true
