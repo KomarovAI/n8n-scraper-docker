@@ -61,7 +61,7 @@ jobs:
 
       - name: Run ShellCheck
         run: |
-          if ls scripts/*.sh 1> /dev/null 2>&1; then
+          if ls scripts/*.sh 1> /dev/null 2>&1 || ls tests/**/*.sh 1> /dev/null 2>&1; then
             find . -type f -name "*.sh" -exec shellcheck {} \;
             echo "✅ Shell scripts validated"
           else
@@ -275,7 +275,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 9: Integration tests (долгий, зависит от lint и build)
+  # Job 9: Integration tests (долгий, зависит от lint)
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -486,7 +486,86 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 12: Final summary (зависит от всех)
+  # Job 12: n8n Workflow E2E Tests (НОВЫЙ!)
+  n8n-e2e-test:
+    name: n8n Workflow E2E Test
+    runs-on: ubuntu-latest
+    needs: [validate-compose, build-n8n]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          POSTGRES_DB=scraper_db
+          POSTGRES_USER=scraper_user
+          POSTGRES_PASSWORD=test_password_12345678901234567890
+          REDIS_PASSWORD=test_redis_password_1234567890123456
+          N8N_USER=admin
+          N8N_PASSWORD=test_n8n_password_12345678901234567890
+          N8N_BASIC_AUTH_ACTIVE=true
+          N8N_BASIC_AUTH_USER=admin
+          N8N_BASIC_AUTH_PASSWORD=test_n8n_password_12345678901234567890
+          TOR_CONTROL_PASSWORD=test_tor_password_1234567890123456
+          GRAFANA_USER=admin
+          GRAFANA_PASSWORD=test_grafana_password_12345678901234
+          HUGGINGFACE_TOKEN=
+          GRAFANA_ROOT_URL=http://localhost:3000
+          EOF
+
+      - name: Start n8n stack
+        run: |
+          docker compose up -d postgres redis n8n
+          echo "⏳ Waiting for n8n to be ready..."
+
+      - name: Wait for n8n
+        run: |
+          for i in {1..60}; do
+            if curl -s -f http://localhost:5678/healthz 2>/dev/null; then
+              echo "✅ n8n is ready"
+              exit 0
+            fi
+            echo "Waiting for n8n... ($i/60)"
+            sleep 3
+          done
+          echo "❌ n8n failed to start"
+          docker compose logs n8n
+          exit 1
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Make test script executable
+        run: chmod +x tests/n8n/e2e-test.sh
+
+      - name: Run n8n E2E tests
+        env:
+          N8N_URL: http://localhost:5678
+          N8N_USER: admin
+          N8N_PASSWORD: test_n8n_password_12345678901234567890
+          WORKFLOW_FILE: tests/n8n/test-workflow.json
+        run: |
+          ./tests/n8n/e2e-test.sh
+
+      - name: Show n8n logs on failure
+        if: failure()
+        run: |
+          echo "=== n8n Logs ==="
+          docker compose logs n8n
+          echo ""
+          echo "=== PostgreSQL Logs ==="
+          docker compose logs postgres
+          echo ""
+          echo "=== Docker Compose Status ==="
+          docker compose ps
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  # Job 13: Final summary (зависит от всех)
   test-summary:
     name: 📊 Test Summary
     runs-on: ubuntu-latest
@@ -502,6 +581,7 @@ jobs:
       - test-tor
       - integration-test
       - test-configurations
+      - n8n-e2e-test
     if: always()
     
     steps:
@@ -521,6 +601,7 @@ jobs:
           echo "  ✅ Tor Connectivity"
           echo "  ✅ Integration Tests"
           echo "  ✅ Configuration Tests"
+          echo "  ✅ n8n Workflow E2E Test"
           echo ""
           echo "🚀 Ready for deployment!"
 
@@ -533,7 +614,8 @@ jobs:
              [ "${{ needs.secret-scan.result }}" = "success" ] && \
              [ "${{ needs.build-n8n.result }}" = "success" ] && \
              [ "${{ needs.health-check.result }}" = "success" ] && \
-             [ "${{ needs.integration-test.result }}" = "success" ]; then
+             [ "${{ needs.integration-test.result }}" = "success" ] && \
+             [ "${{ needs.n8n-e2e-test.result }}" = "success" ]; then
             echo "✅ ALL TESTS PASSED - PRODUCTION READY"
           else
             echo "❌ SOME TESTS FAILED - CHECK LOGS"
