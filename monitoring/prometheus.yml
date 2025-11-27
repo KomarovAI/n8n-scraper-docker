@@ -1,10 +1,10 @@
-# Prometheus Configuration for n8n Scraper Workflow
+# Prometheus Configuration for n8n Scraper Docker
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    cluster: 'n8n-scraper'
+    cluster: 'n8n-scraper-docker'
     environment: 'production'
 
 # Alertmanager configuration
@@ -25,27 +25,23 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # Node exporter for system metrics
+  # Node exporter for system metrics (CPU, RAM, Disk, Network)
   - job_name: 'node'
     static_configs:
-      - targets: ['localhost:9100']
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
 
-  # Redis exporter
+  # Redis exporter for Redis metrics
   - job_name: 'redis'
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
 
-  # PostgreSQL exporter
+  # PostgreSQL exporter for database metrics
   - job_name: 'postgres'
     static_configs:
-      - targets: ['postgres:5432']
-
-  # Application metrics (custom exporter)
-  - job_name: 'scraper-metrics'
-    static_configs:
-      - targets: ['localhost:8000']
-    metrics_path: '/metrics'
-    scrape_interval: 30s
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 15s
 
   # ML Service metrics (AI Router)
   - job_name: 'ml-service'
@@ -54,11 +50,7 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 30s
     metric_relabel_configs:
-      # Track Gemini API usage
-      - source_labels: [__name__]
-        regex: 'gemini_.*'
-        action: keep
-      # Track optimization metrics
+      # Track ML optimization metrics
       - source_labels: [__name__]
         regex: 'ml_.*'
         action: keep
@@ -75,3 +67,4 @@ scrape_configs:
     static_configs:
       - targets: ['grafana:3000']
     metrics_path: '/metrics'
+    scrape_interval: 60s
