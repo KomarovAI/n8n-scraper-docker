@@ -1,6 +1,11 @@
 # n8n-scraper-docker 🐳
 
 [![CI/CD](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml/badge.svg)](https://github.com/KomarovAI/n8n-scraper-docker/actions)
+[![AI-Optimized](https://img.shields.io/badge/AI-Optimized-blue?logo=ai&logoColor=white)](/.ai-optimized)
+[![Context](https://img.shields.io/badge/Context-Minimal-green)](/OPTIMIZATION_REPORT.md)
+[![LLM-Friendly](https://img.shields.io/badge/LLM-Friendly-orange)](/.ai-optimized)
+
+> 🧠 **AI/LLM Optimized**: This repository is specifically designed for minimal context consumption by AI systems. Documentation reduced by 66%, zero functionality loss.
 
 Production-ready n8n web scraping platform. 87% success rate, 5.3s latency, $2.88/1000 URLs.
 
@@ -144,6 +149,17 @@ sudo ufw enable
 └── .github/workflows/    # CI/CD pipelines
 ```
 
+## AI Optimization
+
+🧠 This repository is optimized for AI/LLM consumption:
+- **-66% documentation size** (82KB → 28KB)
+- **-68% README size** (10.7KB → 3.4KB)
+- **100% functionality preserved**
+- **Signal-focused content** (no verbose explanations)
+- **Clear navigation** (README → QUICKSTART → docs/INDEX)
+
+See [OPTIMIZATION_REPORT.md](OPTIMIZATION_REPORT.md) for details.
+
 ## Links
 
 - [Docker Hub](https://hub.docker.com/r/n8nio/n8n)
@@ -152,4 +168,4 @@ sudo ufw enable
 
 ---
 
-**Built by KomarovAI** | Production-Ready ✅ | Auto-Tested 🧪 | Fully Monitored 📊
+**Built by KomarovAI** | Production-Ready ✅ | Auto-Tested 🧪 | Fully Monitored 📊 | **AI-Optimized 🧠**
