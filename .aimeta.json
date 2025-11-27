@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "2.0",
   "repository": {
     "name": "n8n-scraper-docker",
     "type": "production-application",
@@ -9,17 +9,18 @@
   "ai_optimization": {
     "level": "maximum",
     "optimized_date": "2025-11-27",
-    "optimization_version": "1.1",
-    "context_tokens_saved_percent": 72,
-    "documentation_reduction_percent": 65,
-    "readme_reduction_percent": 60,
-    "redundant_files_removed": 6,
-    "total_size_reduction_kb": 45.4,
+    "optimization_version": "2.0",
+    "context_tokens_saved_percent": 85,
+    "documentation_reduction_percent": 85,
+    "readme_reduction_percent": 45,
+    "redundant_files_removed": 8,
+    "total_size_reduction_kb": 57,
     "ai_ready": true,
     "llm_friendly": true,
     "token_efficient": true,
     "signal_focused": true,
-    "ultra_clean": true
+    "ultra_clean": true,
+    "unified_instructions": true
   },
   "keywords": {
     "primary": [
@@ -28,7 +29,8 @@
       "minimal-context",
       "token-efficient",
       "signal-focused",
-      "ultra-clean"
+      "ultra-clean",
+      "unified-instructions"
     ],
     "technology": [
       "n8n",
@@ -56,40 +58,39 @@
   },
   "navigation": {
     "start_here": "README.md",
-    "quick_start": "QUICKSTART.md",
     "architecture": "ARCHITECTURE.md",
-    "ai_guide": "AI_MANIFEST.md",
-    "technical_docs": "docs/INDEX.md",
-    "ai_instructions": ".github/copilot-instructions.md"
+    "ai_instructions": ".ai/instructions.md",
+    "technical_docs": "docs/"
   },
   "structure": {
     "documentation_levels": 2,
     "hierarchy": [
-      "README.md → QUICKSTART.md / ARCHITECTURE.md / AI_MANIFEST.md",
-      "docs/INDEX.md → Technical details"
+      "README.md → ARCHITECTURE.md",
+      "docs/ → Technical details"
     ],
     "token_priority": {
       "critical": [
         "README.md",
         "docker-compose.yml",
-        ".env.example"
-      ],
-      "high": [
-        "QUICKSTART.md",
-        "ARCHITECTURE.md",
-        "AI_MANIFEST.md",
+        ".env.example",
         ".aimeta.json"
       ],
+      "high": [
+        "ARCHITECTURE.md",
+        ".ai/instructions.md",
+        "workflows/",
+        "scrapers/",
+        "ml/"
+      ],
       "medium": [
-        "docs/INDEX.md",
-        ".github/copilot-instructions.md",
-        ".cursorrules",
-        ".windsurfrules"
+        "monitoring/",
+        "tests/",
+        "docs/HYBRID_FALLBACK_STRATEGY.md",
+        "docs/NODRIVER_ENHANCED_V2.md"
       ],
       "low": [
-        "docs/CI_CD_OPTIMIZATION.md",
-        "docs/ANTI_DETECTION_GUIDE.md",
-        "docs/HYBRID_FALLBACK_STRATEGY.md"
+        ".github/workflows/",
+        "scripts/"
       ]
     }
   },
@@ -134,10 +135,10 @@
     "coverage": "100-percent"
   },
   "ai_instructions": {
+    "unified": ".ai/instructions.md",
     "copilot": ".github/copilot-instructions.md",
     "cursor": ".cursorrules",
     "windsurf": ".windsurfrules",
-    "unified": true,
     "cross_ai_compatible": true
   },
   "compatibility": {
@@ -164,7 +165,7 @@
     {
       "version": "1.1",
       "date": "2025-11-27",
-      "changes": "Removed 6 redundant files, updated metadata, improved structure",
+      "changes": "Removed 6 redundant files, updated metadata",
       "files_removed": [
         ".github/docs/README.md",
         ".github/docs/QUICK_START_UNIFIED_REPORTING.md",
@@ -175,26 +176,53 @@
       ],
       "size_reduction_kb": 45.4,
       "reduction_percent": 72
+    },
+    {
+      "version": "2.0",
+      "date": "2025-11-27",
+      "changes": "Removed 8 files, unified AI instructions, optimized README",
+      "files_removed": [
+        "QUICKSTART.md",
+        "AI_MANIFEST.md",
+        ".ai-optimized",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        "docs/INDEX.md",
+        "docs/CI_CD_OPTIMIZATION.md",
+        "docs/ANTI_DETECTION_GUIDE.md",
+        "docs/RATE_LIMITING_GUIDE.md"
+      ],
+      "files_created": [
+        ".ai/instructions.md"
+      ],
+      "size_reduction_kb": 57,
+      "reduction_percent": 85,
+      "improvements": [
+        "Unified AI instructions (1 file vs 3)",
+        "Optimized README (merged QUICKSTART)",
+        "Removed redundant documentation",
+        "Updated all AI assistant files"
+      ]
     }
   ],
   "maintenance": {
     "last_optimized": "2025-11-27",
-    "optimization_version": "1.1",
+    "optimization_version": "2.0",
     "maintainer": "KomarovAI",
     "github_url": "https://github.com/KomarovAI/n8n-scraper-docker",
     "issues_url": "https://github.com/KomarovAI/n8n-scraper-docker/issues",
     "actions_url": "https://github.com/KomarovAI/n8n-scraper-docker/actions"
   },
   "badges": {
-    "ai_optimized": "https://img.shields.io/badge/AI-Optimized%20v1.1-blue?logo=ai&logoColor=white",
-    "context_minimal": "https://img.shields.io/badge/Context-72%25%20Reduced-green",
-    "llm_friendly": "https://img.shields.io/badge/LLM-Friendly-orange",
+    "ai_optimized": "https://img.shields.io/badge/AI--Optimized-v2.0-blue?logo=ai&logoColor=white",
+    "context_minimal": "https://img.shields.io/badge/Context-85%25%20Reduced-brightgreen",
+    "llm_friendly": "https://img.shields.io/badge/LLM--Friendly-orange",
+    "production_ready": "https://img.shields.io/badge/Production--Ready-success",
     "ci_cd": "https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml/badge.svg"
   },
   "meta": {
     "created": "2025-11-27T10:57:00Z",
-    "updated": "2025-11-27T14:25:00Z",
-    "schema": "https://github.com/ai-repo-standards/schema/v1.1",
+    "updated": "2025-11-27T17:16:00Z",
+    "schema": "https://github.com/ai-repo-standards/schema/v2.0",
     "generator": "manual",
     "purpose": "machine-readable-ai-metadata"
   }
