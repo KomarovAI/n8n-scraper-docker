@@ -55,6 +55,7 @@ jobs:
       
       - name: 🐳 Build image
         run: |
+          set -o pipefail  # ✅ КРИТИЧНО: exit code пайплайна = exit code первой упавшей команды
           echo "Building n8n-enhanced..."
           docker build -f Dockerfile.n8n-enhanced -t n8n-enhanced:test . 2>&1 | tee /tmp/fast-validation-test.log
           echo "Build successful"
