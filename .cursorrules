@@ -1,55 +1,64 @@
-# Cursor AI Rules
+# Cursor AI Rules - n8n-scraper-docker
 
-# This repository uses unified AI instructions.
-# All AI assistants (Cursor, Windsurf, Copilot, etc.) should follow:
-# 
-# Primary: .github/copilot-instructions.md
-# Manifest: AI_MANIFEST.md
-# Optimization: .ai-optimized
+**📢 This file references unified AI instructions**
+
+## Primary Instructions Location
+
+👉 **Read**: [.ai/instructions.md](.ai/instructions.md)
+
+All AI assistants (Cursor, Windsurf, GitHub Copilot, ChatGPT, Claude) use the same instructions for consistency.
 
 ## Quick Context
 
-**Type:** Production n8n scraping platform (8 microservices)  
-**Status:** AI-optimized (minimal context, token-efficient)  
-**Metrics:** 87% success, 5.3s latency, $2.88/1000 URLs  
+**Type**: Production n8n scraping platform (8 microservices)  
+**Status**: AI-optimized v2.0 (minimal context, token-efficient)  
+**Metrics**: 87% success, 5.3s latency, $2.88/1000 URLs  
 
-## Core Principles
+## Core Principles (Summary)
 
-1. **Minimal documentation** - Signal-focused, no verbose
-2. **Token-efficient code** - Self-documenting, clear names
-3. **Single source of truth** - No duplication
-4. **Follow existing patterns** - Consistency over innovation
-5. **AI optimization first** - Every change maintains minimal context
+1. **Token efficiency** - Minimal comments, compact code
+2. **Production-ready** - No TODOs, complete error handling
+3. **Security first** - Never hardcode secrets, use `@ai-ignore`
+4. **Architecture alignment** - Follow microservices pattern
 
-## For Detailed Instructions
+## Quick Reference
 
-See `.github/copilot-instructions.md` for:
-- Coding standards
-- Architecture guidelines
-- Testing strategy
-- Security guidelines
-- Deployment checklist
-
-## Quick Commands
-
+### Start Platform
 ```bash
-# Start
 docker-compose up -d --build
-
-# Test
-.github/workflows/ci-test.yml
-
-# Logs
-docker-compose logs -f [service]
 ```
 
-## Navigation
+### View Logs
+```bash
+docker-compose logs -f n8n
+```
 
-- Architecture: `README.md`
-- Quick start: `QUICKSTART.md`
-- AI guide: `AI_MANIFEST.md`
-- Tech docs: `docs/INDEX.md`
+### Run Tests
+```bash
+docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+```
+
+## Navigation Priority
+
+**Read these first when generating code:**
+
+1. **Critical**: `README.md`, `docker-compose.yml`, `.env.example`, `.aimeta.json`
+2. **High**: `ARCHITECTURE.md`, `workflows/`, `scrapers/`, `ml/`
+3. **Medium**: `monitoring/`, `tests/`, `docs/HYBRID_FALLBACK_STRATEGY.md`
+4. **Low**: `.github/workflows/`, `scripts/`
+
+## Full Guidelines
+
+📖 **Complete instructions**: [.ai/instructions.md](.ai/instructions.md)
+
+Includes:
+- Detailed code style guidelines
+- Common pitfalls to avoid
+- Testing patterns
+- Workflow architecture
+- Performance targets
+- Environment variables reference
 
 ---
 
-**AI-Optimized Repository** 🧠 | Follow unified instructions above
+**AI-Optimized v2.0 🧠** | Production-Ready ✅ | Token-Efficient 🚀
