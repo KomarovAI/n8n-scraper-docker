@@ -209,7 +209,10 @@ jobs:
       
       - name: 🧹 Cleanup
         if: always()
-        run: docker compose down -v
+        run: |
+          # Создаем пустой .env если его нет
+          [ ! -f .env ] && touch .env
+          docker compose down -v
 
   essential-tests:
     name: 🧪 Essential Test
@@ -357,7 +360,9 @@ jobs:
       
       - name: 🧹 Cleanup
         if: always()
-        run: docker compose down -v
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
 
   e2e-tests:
     name: 🎯 E2E Test
@@ -490,7 +495,9 @@ jobs:
       
       - name: 🧹 Cleanup
         if: always()
-        run: docker compose down -v
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
 
   n8n-integration:
     name: 🌐 Integration
@@ -612,7 +619,9 @@ jobs:
       
       - name: 🧹 Cleanup
         if: always()
-        run: docker compose down -v
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
 
   master-e2e:
     name: 🏆 Master E2E
@@ -743,7 +752,9 @@ jobs:
       
       - name: 🧹 Cleanup
         if: always()
-        run: docker compose down -v
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
 
   ctrf-report:
     name: 📊 Final Report
