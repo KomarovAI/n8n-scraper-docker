@@ -172,7 +172,40 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Job 8: Health checks (средний, зависит от lint)
+  # Job 8: Smoke Test (НОВЫЙ! критичный)
+  smoke-test:
+    name: 🔥 Smoke Test
+    runs-on: ubuntu-latest
+    needs: [build-n8n, build-ml-service]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build images for smoke test
+        run: |
+          docker build -f Dockerfile.n8n-enhanced -t n8n-scraper:smoke-test .
+          if [ -f "ml/Dockerfile" ]; then
+            docker build -f ml/Dockerfile -t ml-service:smoke-test ./ml
+          fi
+
+      - name: Make smoke test executable
+        run: chmod +x tests/smoke/smoke-test.sh
+
+      - name: Run smoke tests
+        run: ./tests/smoke/smoke-test.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Container Logs ==="
+          docker logs smoke-n8n 2>&1 || true
+          docker logs smoke-ml 2>&1 || true
+
+  # Job 9: Health checks (средний, зависит от lint)
   health-check:
     name: Health Check Tests
     runs-on: ubuntu-latest
@@ -275,7 +308,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 9: Integration tests (долгий, зависит от lint)
+  # Job 10: Integration tests (долгий, зависит от lint)
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -382,7 +415,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 10: Test Tor connectivity (средний, независимый)
+  # Job 11: Test Tor connectivity (средний, независимый)
   test-tor:
     name: Test Tor Proxy
     runs-on: ubuntu-latest
@@ -425,7 +458,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 11: Test matrix для разных конфигураций (параллельный)
+  # Job 12: Test matrix для разных конфигураций (параллельный)
   test-configurations:
     name: Test Config (${{ matrix.config }})
     runs-on: ubuntu-latest
@@ -486,7 +519,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 12: n8n Workflow E2E Tests (НОВЫЙ!)
+  # Job 13: n8n Workflow E2E Tests
   n8n-e2e-test:
     name: n8n Workflow E2E Test
     runs-on: ubuntu-latest
@@ -565,7 +598,153 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 13: Final summary (зависит от всех)
+  # Job 14: Webhook Tests (НОВЫЙ!)
+  test-webhooks:
+    name: 🔗 Webhook Tests
+    runs-on: ubuntu-latest
+    needs: [validate-compose, build-n8n]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          POSTGRES_DB=scraper_db
+          POSTGRES_USER=scraper_user
+          POSTGRES_PASSWORD=test_password_12345678901234567890
+          REDIS_PASSWORD=test_redis_password_1234567890123456
+          N8N_USER=admin
+          N8N_PASSWORD=test_n8n_password_12345678901234567890
+          N8N_BASIC_AUTH_ACTIVE=true
+          N8N_BASIC_AUTH_USER=admin
+          N8N_BASIC_AUTH_PASSWORD=test_n8n_password_12345678901234567890
+          TOR_CONTROL_PASSWORD=test_tor_password_1234567890123456
+          GRAFANA_USER=admin
+          GRAFANA_PASSWORD=test_grafana_password_12345678901234
+          HUGGINGFACE_TOKEN=
+          GRAFANA_ROOT_URL=http://localhost:3000
+          EOF
+
+      - name: Start n8n stack
+        run: |
+          docker compose up -d postgres redis n8n
+          echo "⏳ Waiting for n8n to be ready..."
+
+      - name: Wait for n8n
+        run: |
+          for i in {1..60}; do
+            if curl -s -f http://localhost:5678/healthz 2>/dev/null; then
+              echo "✅ n8n is ready"
+              exit 0
+            fi
+            echo "Waiting for n8n... ($i/60)"
+            sleep 3
+          done
+          echo "❌ n8n failed to start"
+          exit 1
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Make webhook test executable
+        run: chmod +x tests/webhooks/test-webhooks.sh
+
+      - name: Run webhook tests
+        env:
+          N8N_URL: http://localhost:5678
+          N8N_USER: admin
+          N8N_PASSWORD: test_n8n_password_12345678901234567890
+          WEBHOOK_WORKFLOW: tests/webhooks/test-webhook.json
+          SAMPLE_PAYLOAD: tests/webhooks/sample-payload.json
+        run: |
+          ./tests/webhooks/test-webhooks.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== n8n Logs ==="
+          docker compose logs n8n
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  # Job 15: Subworkflow Tests (НОВЫЙ!)
+  test-subworkflows:
+    name: 🔗 Subworkflow Tests
+    runs-on: ubuntu-latest
+    needs: [validate-compose, build-n8n]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          POSTGRES_DB=scraper_db
+          POSTGRES_USER=scraper_user
+          POSTGRES_PASSWORD=test_password_12345678901234567890
+          REDIS_PASSWORD=test_redis_password_1234567890123456
+          N8N_USER=admin
+          N8N_PASSWORD=test_n8n_password_12345678901234567890
+          N8N_BASIC_AUTH_ACTIVE=true
+          N8N_BASIC_AUTH_USER=admin
+          N8N_BASIC_AUTH_PASSWORD=test_n8n_password_12345678901234567890
+          TOR_CONTROL_PASSWORD=test_tor_password_1234567890123456
+          GRAFANA_USER=admin
+          GRAFANA_PASSWORD=test_grafana_password_12345678901234
+          HUGGINGFACE_TOKEN=
+          GRAFANA_ROOT_URL=http://localhost:3000
+          EOF
+
+      - name: Start n8n stack
+        run: |
+          docker compose up -d postgres redis n8n
+          echo "⏳ Waiting for n8n to be ready..."
+
+      - name: Wait for n8n
+        run: |
+          for i in {1..60}; do
+            if curl -s -f http://localhost:5678/healthz 2>/dev/null; then
+              echo "✅ n8n is ready"
+              exit 0
+            fi
+            echo "Waiting for n8n... ($i/60)"
+            sleep 3
+          done
+          echo "❌ n8n failed to start"
+          exit 1
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Make subworkflow test executable
+        run: chmod +x tests/subworkflows/test-subworkflows.sh
+
+      - name: Run subworkflow tests
+        env:
+          N8N_URL: http://localhost:5678
+          N8N_USER: admin
+          N8N_PASSWORD: test_n8n_password_12345678901234567890
+          CHILD_WORKFLOW: tests/subworkflows/child-workflow.json
+          PARENT_WORKFLOW: tests/subworkflows/parent-workflow.json
+        run: |
+          ./tests/subworkflows/test-subworkflows.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== n8n Logs ==="
+          docker compose logs n8n
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  # Job 16: Final summary (зависит от всех)
   test-summary:
     name: 📊 Test Summary
     runs-on: ubuntu-latest
@@ -577,11 +756,14 @@ jobs:
       - secret-scan
       - build-n8n
       - build-ml-service
+      - smoke-test
       - health-check
       - test-tor
       - integration-test
       - test-configurations
       - n8n-e2e-test
+      - test-webhooks
+      - test-subworkflows
     if: always()
     
     steps:
@@ -597,11 +779,14 @@ jobs:
           echo "  ✅ Secret Detection"
           echo "  ✅ n8n-enhanced Build"
           echo "  ✅ ML Service Build"
+          echo "  ✅ Smoke Test 🔥"
           echo "  ✅ Health Checks"
           echo "  ✅ Tor Connectivity"
           echo "  ✅ Integration Tests"
           echo "  ✅ Configuration Tests"
           echo "  ✅ n8n Workflow E2E Test"
+          echo "  ✅ Webhook Tests 🔗"
+          echo "  ✅ Subworkflow Tests 🔗"
           echo ""
           echo "🚀 Ready for deployment!"
 
@@ -613,9 +798,12 @@ jobs:
              [ "${{ needs.trivy-scan.result }}" = "success" ] && \
              [ "${{ needs.secret-scan.result }}" = "success" ] && \
              [ "${{ needs.build-n8n.result }}" = "success" ] && \
+             [ "${{ needs.smoke-test.result }}" = "success" ] && \
              [ "${{ needs.health-check.result }}" = "success" ] && \
              [ "${{ needs.integration-test.result }}" = "success" ] && \
-             [ "${{ needs.n8n-e2e-test.result }}" = "success" ]; then
+             [ "${{ needs.n8n-e2e-test.result }}" = "success" ] && \
+             [ "${{ needs.test-webhooks.result }}" = "success" ] && \
+             [ "${{ needs.test-subworkflows.result }}" = "success" ]; then
             echo "✅ ALL TESTS PASSED - PRODUCTION READY"
           else
             echo "❌ SOME TESTS FAILED - CHECK LOGS"
