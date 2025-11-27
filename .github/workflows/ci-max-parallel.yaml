@@ -547,7 +547,7 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 7: CTRF Final Report - ULTIMATE DEBUG VERSION
+  # Job 7: CTRF Final Report - FIXED VERSION
   ctrf-report:
     name: 🤖 CTRF Final + Debug
     runs-on: ubuntu-latest
@@ -596,7 +596,6 @@ jobs:
           
           echo "🔄 Merging ALL files into FLAT structure..."
           
-          # Копируем ВСЕ файлы в плоскую структуру
           if [ -d "all-temp-logs" ]; then
             COPIED=0
             while IFS= read -r file; do
@@ -617,7 +616,6 @@ jobs:
         run: |
           echo "========== ERROR EXTRACTION =========="
           
-          # Функция поиска ошибок
           extract_error() {
             local prefix="$1"
             echo "🔍 Searching for errors in: ${prefix}-*.log"
@@ -626,7 +624,6 @@ jobs:
             if ls logs/${prefix}-*.log 1> /dev/null 2>&1; then
               error_msg=$(grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" logs/${prefix}-*.log 2>/dev/null | head -1 | sed 's/"/\\&/g; s/$//' || echo "")
               if [ -z "$error_msg" ]; then
-                # Если grep не нашёл, берём последние 3 строки лога
                 error_msg=$(tail -3 logs/${prefix}-*.log 2>/dev/null | tr '\n' ' ' | sed 's/"/\\&/g; s/$//')
               fi
             fi
@@ -649,7 +646,6 @@ jobs:
           
           echo "======================================"
           
-          # Сохраняем ошибки в отдельные файлы (для безопасной вставки в JSON)
           echo "$ERROR_FAST" > /tmp/error_fast.txt
           echo "$ERROR_SMOKE" > /tmp/error_smoke.txt
           echo "$ERROR_ESSENTIAL" > /tmp/error_essential.txt
@@ -657,7 +653,6 @@ jobs:
           echo "$ERROR_INTEGRATION" > /tmp/error_integration.txt
           echo "$ERROR_MASTER" > /tmp/error_master.txt
           
-          # Сохраняем в человеко-читаемый формат
           cat > logs/errors.txt << 'ERRORS_EOF'
 Fast Validation: $ERROR_FAST
 Smoke Tests: $ERROR_SMOKE
@@ -667,7 +662,6 @@ Integration: $ERROR_INTEGRATION
 Master E2E: $ERROR_MASTER
 ERRORS_EOF
           
-          # Подставляем переменные
           sed -i "s/\$ERROR_FAST/$ERROR_FAST/g; s/\$ERROR_SMOKE/$ERROR_SMOKE/g; s/\$ERROR_ESSENTIAL/$ERROR_ESSENTIAL/g; s/\$ERROR_E2E/$ERROR_E2E/g; s/\$ERROR_INTEGRATION/$ERROR_INTEGRATION/g; s/\$ERROR_MASTER/$ERROR_MASTER/g" logs/errors.txt
           
           echo "📝 Errors saved to logs/errors.txt"
@@ -685,12 +679,41 @@ ERRORS_EOF
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          STATUS_FAST="${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_SMOKE="${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_ESSENTIAL="${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_E2E="${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_INTEGRATION="${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_MASTER="${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}"
+          if [ "${{ needs.fast-validation.result }}" == "success" ]; then
+            STATUS_FAST="passed"
+          else
+            STATUS_FAST="failed"
+          fi
+          
+          if [ "${{ needs.smoke-tests.result }}" == "success" ]; then
+            STATUS_SMOKE="passed"
+          else
+            STATUS_SMOKE="failed"
+          fi
+          
+          if [ "${{ needs.essential-tests.result }}" == "success" ]; then
+            STATUS_ESSENTIAL="passed"
+          else
+            STATUS_ESSENTIAL="failed"
+          fi
+          
+          if [ "${{ needs.e2e-tests.result }}" == "success" ]; then
+            STATUS_E2E="passed"
+          else
+            STATUS_E2E="failed"
+          fi
+          
+          if [ "${{ needs.n8n-integration.result }}" == "success" ]; then
+            STATUS_INTEGRATION="passed"
+          else
+            STATUS_INTEGRATION="failed"
+          fi
+          
+          if [ "${{ needs.master-e2e.result }}" == "success" ]; then
+            STATUS_MASTER="passed"
+          else
+            STATUS_MASTER="failed"
+          fi
           
           jq -n --argjson passed "$PASSED" --argjson failed "$FAILED" --arg error_fast "$(cat /tmp/error_fast.txt)" --arg error_smoke "$(cat /tmp/error_smoke.txt)" --arg error_essential "$(cat /tmp/error_essential.txt)" --arg error_e2e "$(cat /tmp/error_e2e.txt)" --arg error_integration "$(cat /tmp/error_integration.txt)" --arg error_master "$(cat /tmp/error_master.txt)" --arg status_fast "$STATUS_FAST" --arg status_smoke "$STATUS_SMOKE" --arg status_essential "$STATUS_ESSENTIAL" --arg status_e2e "$STATUS_E2E" --arg status_integration "$STATUS_INTEGRATION" --arg status_master "$STATUS_MASTER" '{"results":{"tool":{"name":"n8n-scraper-docker","version":"3.0.0"},"summary":{"tests":12,"passed":$passed,"failed":$failed,"pending":0,"skipped":0,"other":0,"start":(now-720)*1000|floor,"stop":(now*1000)|floor},"tests":[{"name":"Fast Validation","status":$status_fast,"message":$error_fast},{"name":"Smoke: PostgreSQL","status":$status_smoke,"message":$error_smoke},{"name":"Smoke: Redis","status":$status_smoke,"message":$error_smoke},{"name":"Smoke: Tor","status":$status_smoke,"message":$error_smoke},{"name":"Smoke: Prometheus","status":$status_smoke,"message":$error_smoke},{"name":"Smoke: Grafana","status":$status_smoke,"message":$error_smoke},{"name":"Essential: Health","status":$status_essential,"message":$error_essential},{"name":"Essential: Workflow","status":$status_essential,"message":$error_essential},{"name":"E2E: Node.js","status":$status_e2e,"message":$error_e2e},{"name":"Integration: n8n","status":$status_integration,"message":$error_integration},{"name":"Master: Full Stack","status":$status_master,"message":$error_master},{"name":"Perf: Latency","status":"passed","duration":5300}],"extra":{"prod":{"scrape":87,"lat_ms":5300,"cost":2.88,"up":99.8,"cf":92}}}}' > logs/ctrf-report.json
           
