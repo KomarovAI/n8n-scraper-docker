@@ -1,0 +1,107 @@
+name: Essential Smoke Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  essential-tests:
+    name: 🧪 Essential Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📝 Create .env from example
+        run: |
+          cp .env.example .env
+          # Генерируем случайные пароли для тестов
+          sed -i 's/CHANGE_ME_POSTGRES_PASSWORD/test_postgres_$(openssl rand -hex 8)/g' .env
+          sed -i 's/CHANGE_ME_REDIS_PASSWORD/test_redis_$(openssl rand -hex 8)/g' .env
+          sed -i 's/CHANGE_ME_N8N_PASSWORD/test_n8n_$(openssl rand -hex 8)/g' .env
+          sed -i 's/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 8)/g' .env
+          sed -i 's/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 8)/g' .env
+      
+      - name: 🐳 Start Docker services
+        run: |
+          docker-compose up -d n8n postgres redis prometheus grafana
+          echo "✅ Docker services started"
+      
+      - name: ⏱️ Wait for services to be ready
+        run: |
+          echo "⏳ Waiting 60 seconds for all services to start..."
+          sleep 60
+          echo "✅ Services should be ready"
+      
+      - name: 📊 Check Docker containers status
+        run: |
+          echo "::group::Docker containers"
+          docker-compose ps
+          echo "::endgroup::"
+      
+      - name: 🧪 Run Essential Test #1: Health Check
+        run: |
+          echo "::group::Test #1: Health Check"
+          bash tests/essential/test_health.sh
+          echo "::endgroup::"
+      
+      - name: 🚀 Run Essential Test #2: Workflow Smoke Test
+        run: |
+          echo "::group::Test #2: Workflow Smoke Test"
+          bash tests/essential/test_workflow.sh
+          echo "::endgroup::"
+      
+      - name: 📊 Show service logs on failure
+        if: failure()
+        run: |
+          echo "::group::n8n logs"
+          docker-compose logs --tail=100 n8n
+          echo "::endgroup::"
+          
+          echo "::group::PostgreSQL logs"
+          docker-compose logs --tail=50 postgres
+          echo "::endgroup::"
+          
+          echo "::group::Redis logs"
+          docker-compose logs --tail=50 redis
+          echo "::endgroup::"
+      
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          docker-compose down -v
+          echo "✅ Cleanup complete"
+  
+  summary:
+    name: 📊 Test Summary
+    needs: essential-tests
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: 🏁 Generate summary
+        run: |
+          echo "# 🧪 Essential Smoke Tests Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.essential-tests.result }}" == "success" ]; then
+            echo "| Health Check | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+            echo "| Workflow Test | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## ✅ All tests passed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "System is ready for deployment." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Essential Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## ❌ Tests failed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
