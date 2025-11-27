@@ -1,123 +1,122 @@
-# .aiignore - AI Context Optimization v1.1
-# Этот файл исключает ненужные файлы из AI context
+# .aiignore - Exclude from AI/LLM context
+# This file tells AI assistants which files/folders to ignore
+# Reduces token usage by excluding non-essential files
 
-# Build artifacts & Dependencies
+# Version Control
+.git/
+.gitignore
+.gitattributes
+
+# Dependencies & Build
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-PIPFILE.lock
-poetry.lock
+.eggs/
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
 
 # Docker
 .dockerignore
 *.log
 
-# Virtual environments
-venv/
-ENV/
-env/
-.venv/
+# Data & Databases
+*.db
+*.sqlite
+*.sqlite3
+db/data/
+postgres_data/
+redis_data/
 
-# IDE & Editor files
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+.pytest_cache/
+.tox/
+test-results/
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
+.project
+.settings/
 
-# Logs & Temp files
-*.log
-logs/
-*.tmp
-*.temp
+# CI/CD Artifacts (exclude from context, but keep workflows)
+.github/workflows/*.log
+.github/scripts/*.log
+
+# Temporary Files
 tmp/
 temp/
+*.tmp
+*.temp
+*.bak
+*.backup
 
-# Test coverage
-.coverage
-.pytest_cache/
-htmlcov/
-.tox/
-.nox/
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-db/data/
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# OS files
-Thumbs.db
-.DS_Store
-._*
-
-# Git
-.git/
-.gitattributes
-
-# CI/CD artifacts
-.github/workflows/.ctrf/
-ctrf/
+# Large Files (not useful for AI context)
 *.zip
+*.tar
 *.tar.gz
+*.rar
+*.7z
+*.iso
+*.dmg
 
-# Binary & Media files (не нужны AI)
+# Media Files (not useful for AI context)
+*.mp4
+*.avi
+*.mov
+*.mp3
+*.wav
+*.flac
 *.jpg
 *.jpeg
 *.png
 *.gif
+*.svg
 *.ico
 *.pdf
-*.mp4
-*.mp3
-*.wav
 
-# Monitoring data (слишком большие)
-monitoring/data/
-prometheus_data/
-grafana_data/
+# Documentation that's redundant (already removed in v2.0)
+# QUICKSTART.md - merged into README
+# AI_MANIFEST.md - replaced by .aimeta.json
+# docs/INDEX.md - removed redundant navigation
 
-# Large generated files
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+# Low-priority technical docs (only read if specifically asked)
+docs/CI_CD_OPTIMIZATION.md
+docs/ANTI_DETECTION_GUIDE.md
+docs/RATE_LIMITING_GUIDE.md
 
-# Archive & Historical (v1.1 optimization)
-.archive/
-docs/migration/
-*.backup
-*_old.*
-*_deprecated.*
-*_archive.*
-
-# AI-specific: focus on code & docs only
-# Нейросеть должна видеть только:
-# - Source code (.py, .js, .ts, .yml, .yaml, .json, .sh)
-# - Documentation (.md)
-# - Configuration files (.env.example, docker-compose.yml, Dockerfile)
+# END .aiignore
