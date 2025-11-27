@@ -685,13 +685,13 @@ ERRORS_EOF
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          # Экранируем ошибки для JSON используя jq
-          ERROR_FAST=$(cat /tmp/error_fast.txt | jq -Rs .)
-          ERROR_SMOKE=$(cat /tmp/error_smoke.txt | jq -Rs .)
-          ERROR_ESSENTIAL=$(cat /tmp/error_essential.txt | jq -Rs .)
-          ERROR_E2E=$(cat /tmp/error_e2e.txt | jq -Rs .)
-          ERROR_INTEGRATION=$(cat /tmp/error_integration.txt | jq -Rs .)
-          ERROR_MASTER=$(cat /tmp/error_master.txt | jq -Rs .)
+          # Выносим ВСЕ GitHub выражения в bash переменные ДО jq
+          STATUS_FAST="${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_SMOKE="${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_ESSENTIAL="${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_E2E="${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_INTEGRATION="${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_MASTER="${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}"
           
           # Создаём JSON используя jq для корректного экранирования
           jq -n \
@@ -703,12 +703,12 @@ ERRORS_EOF
             --arg error_e2e "$(cat /tmp/error_e2e.txt)" \
             --arg error_integration "$(cat /tmp/error_integration.txt)" \
             --arg error_master "$(cat /tmp/error_master.txt)" \
-            --arg status_fast "${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}" \
-            --arg status_smoke "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}" \
-            --arg status_essential "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}" \
-            --arg status_e2e "${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}" \
-            --arg status_integration "${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}" \
-            --arg status_master "${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}" \
+            --arg status_fast "$STATUS_FAST" \
+            --arg status_smoke "$STATUS_SMOKE" \
+            --arg status_essential "$STATUS_ESSENTIAL" \
+            --arg status_e2e "$STATUS_E2E" \
+            --arg status_integration "$STATUS_INTEGRATION" \
+            --arg status_master "$STATUS_MASTER" \
             '{
               "results": {
                 "tool": {"name": "n8n-scraper-docker", "version": "3.0.0"},
