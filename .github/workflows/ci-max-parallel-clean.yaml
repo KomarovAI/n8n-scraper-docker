@@ -588,53 +588,34 @@ jobs:
       
       - name: 📊 Parse metrics
         run: |
-          for metrics_file in logs/*-metrics.json; do
-            if [ -f "$metrics_file" ]; then
-              cat "$metrics_file"
-            fi
-          done > /tmp/all-metrics.json
+          # Используем jq -s для корректного слияния JSONов
+          if ls logs/*-metrics.json 1> /dev/null 2>&1; then
+            jq -s '.' logs/*-metrics.json > /tmp/all-metrics.json 2>/dev/null || echo "[]" > /tmp/all-metrics.json
+          else
+            echo "[]" > /tmp/all-metrics.json
+          fi
           
           echo "Metrics parsed"
           cat /tmp/all-metrics.json
+        continue-on-error: true
       
-      - name: 🔍 Extract and group errors
+      - name: 🔍 Extract errors
         run: |
-          extract_error() {
-            local prefix="$1"
-            local error_msg=""
-            
-            for logfile in logs/${prefix}*.log; do
-              if [ -f "$logfile" ]; then
-                error_msg=$(grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" "$logfile" 2>/dev/null | head -1 || echo "")
-                [ -z "$error_msg" ] && error_msg=$(head -5 "$logfile" 2>/dev/null | grep -v "^$" | head -3 | tr '\n' ' ' | cut -c1-150)
-                [ -n "$error_msg" ] && break
-              fi
-            done
-            
-            [ -z "$error_msg" ] && error_msg="No logs found"
-            echo "$error_msg"
-          }
+          mkdir -p logs
           
-          ERROR_FAST=$(extract_error "fast-validation")
-          ERROR_SMOKE=$(extract_error "smoke-")
-          ERROR_ESSENTIAL=$(extract_error "essential-")
-          ERROR_E2E=$(extract_error "e2e")
-          ERROR_INTEGRATION=$(extract_error "integration")
-          ERROR_MASTER=$(extract_error "master")
+          # Упрощенная экстракция ошибок
+          for logfile in logs/*-test.log; do
+            if [ -f "$logfile" ]; then
+              echo "=== $(basename $logfile) ==="
+              grep -i "error\|fail" "$logfile" 2>/dev/null | head -5 || echo "No errors"
+              echo ""
+            fi
+          done > logs/errors-detailed.txt
           
-          # Детальные ошибки
-          printf "Fast Validation:\n%s\n\nSmoke Tests:\n%s\n\nEssential Tests:\n%s\n\nE2E Tests:\n%s\n\nIntegration:\n%s\n\nMaster E2E:\n%s\n" \
-            "$ERROR_FAST" "$ERROR_SMOKE" "$ERROR_ESSENTIAL" "$ERROR_E2E" "$ERROR_INTEGRATION" "$ERROR_MASTER" \
-            > logs/errors-detailed.txt
-          
-          # Группированные ошибки (оптимизация для AI)
-          cat logs/errors-detailed.txt | grep -v "^$" | sort | uniq -c | \
-          awk '{count=$1; $1=""; msg=$0; gsub(/^[ \t]+/, "", msg); print "{\"count\":" count ",\"message\":\"" msg "\"}"}' | \
-          jq -s '.' > logs/errors-grouped.json
-          
-          echo "Errors extracted and grouped"
+          echo "Errors extracted"
+        continue-on-error: true
       
-      - name: 📊 Generate optimized CTRF
+      - name: 📊 Generate CTRF
         run: |
           PASSED=0
           FAILED=0
@@ -646,19 +627,11 @@ jobs:
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          SUCCESS_RATE=$((PASSED * 100 / 12))
+          SUCCESS_RATE=$((PASSED * 100 / 11))
           
-          # Экспорт для следующих шагов
           echo "PASSED=$PASSED" >> $GITHUB_ENV
           echo "FAILED=$FAILED" >> $GITHUB_ENV
           echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_ENV
-          
-          ERROR_FAST=$(sed -n '2p' logs/errors-detailed.txt)
-          ERROR_SMOKE=$(sed -n '5p' logs/errors-detailed.txt)
-          ERROR_ESSENTIAL=$(sed -n '8p' logs/errors-detailed.txt)
-          ERROR_E2E=$(sed -n '11p' logs/errors-detailed.txt)
-          ERROR_INTEGRATION=$(sed -n '14p' logs/errors-detailed.txt)
-          ERROR_MASTER=$(sed -n '17p' logs/errors-detailed.txt)
           
           DURATION_FAST=${{ needs.fast-validation.outputs.duration }}
           DURATION_E2E=${{ needs.e2e-tests.outputs.duration }}
@@ -666,125 +639,86 @@ jobs:
           DURATION_MASTER=${{ needs.master-e2e.outputs.duration }}
           TOTAL_DURATION=$((DURATION_FAST + DURATION_E2E + DURATION_INTEGRATION + DURATION_MASTER))
           
-          STATUS_FAST="failed"
-          STATUS_SMOKE="failed"
-          STATUS_ESSENTIAL="failed"
-          STATUS_E2E="failed"
-          STATUS_INTEGRATION="failed"
-          STATUS_MASTER="failed"
-          
-          [ "${{ needs.fast-validation.result }}" == "success" ] && STATUS_FAST="passed"
-          [ "${{ needs.smoke-tests.result }}" == "success" ] && STATUS_SMOKE="passed"
-          [ "${{ needs.essential-tests.result }}" == "success" ] && STATUS_ESSENTIAL="passed"
-          [ "${{ needs.e2e-tests.result }}" == "success" ] && STATUS_E2E="passed"
-          [ "${{ needs.n8n-integration.result }}" == "success" ] && STATUS_INTEGRATION="passed"
-          [ "${{ needs.master-e2e.result }}" == "success" ] && STATUS_MASTER="passed"
-          
-          # Определяем критические проваленные тесты
-          CRITICAL_FAILURES=""
-          [ "$STATUS_FAST" == "failed" ] && CRITICAL_FAILURES="$CRITICAL_FAILURES,Fast Validation"
-          [ "$STATUS_ESSENTIAL" == "failed" ] && CRITICAL_FAILURES="$CRITICAL_FAILURES,Essential Tests"
-          [ "$STATUS_MASTER" == "failed" ] && CRITICAL_FAILURES="$CRITICAL_FAILURES,Master E2E"
-          CRITICAL_FAILURES=$(echo "$CRITICAL_FAILURES" | sed 's/^,//')
-          
-          # ОПТИМИЗИРОВАННЫЙ CTRF (flat structure, убраны избыточные поля)
+          # Генерируем CTRF отчет
           jq -n \
             --argjson passed "$PASSED" \
             --argjson failed "$FAILED" \
             --argjson total_duration "$TOTAL_DURATION" \
-            --arg error_fast "$ERROR_FAST" \
-            --arg error_smoke "$ERROR_SMOKE" \
-            --arg error_essential "$ERROR_ESSENTIAL" \
-            --arg error_e2e "$ERROR_E2E" \
-            --arg error_integration "$ERROR_INTEGRATION" \
-            --arg error_master "$ERROR_MASTER" \
-            --arg status_fast "$STATUS_FAST" \
-            --arg status_smoke "$STATUS_SMOKE" \
-            --arg status_essential "$STATUS_ESSENTIAL" \
-            --arg status_e2e "$STATUS_E2E" \
-            --arg status_integration "$STATUS_INTEGRATION" \
-            --arg status_master "$STATUS_MASTER" \
-            --argjson duration_fast "${DURATION_FAST:-0}" \
-            --argjson duration_e2e "${DURATION_E2E:-0}" \
-            --argjson duration_integration "${DURATION_INTEGRATION:-0}" \
-            --argjson duration_master "${DURATION_MASTER:-0}" \
-            --argjson run_number "${{ github.run_number }}" \
+            --argjson run "${{ github.run_number }}" \
             --arg sha "${{ github.sha }}" \
             '{
-              summary_tests: 12,
-              summary_passed: $passed,
-              summary_failed: $failed,
-              summary_duration_ms: ($total_duration * 1000),
-              tests: [
-                {name: "Fast Validation", status: $status_fast, duration: ($duration_fast * 1000), message: $error_fast},
-                {name: "Smoke: PostgreSQL", status: $status_smoke, duration: 0, message: $error_smoke},
-                {name: "Smoke: Redis", status: $status_smoke, duration: 0, message: $error_smoke},
-                {name: "Smoke: Tor", status: $status_smoke, duration: 0, message: $error_smoke},
-                {name: "Smoke: Prometheus", status: $status_smoke, duration: 0, message: $error_smoke},
-                {name: "Smoke: Grafana", status: $status_smoke, duration: 0, message: $error_smoke},
-                {name: "Essential: Health", status: $status_essential, duration: 0, message: $error_essential},
-                {name: "Essential: Workflow", status: $status_essential, duration: 0, message: $error_essential},
-                {name: "E2E: Node.js", status: $status_e2e, duration: ($duration_e2e * 1000), message: $error_e2e},
-                {name: "Integration: n8n", status: $status_integration, duration: ($duration_integration * 1000), message: $error_integration},
-                {name: "Master: Full Stack", status: $status_master, duration: ($duration_master * 1000), message: $error_master},
-                {name: "Perf: Latency", status: "passed", duration: 5300}
-              ],
-              workflow_run: $run_number,
-              workflow_sha: $sha
+              summary: {
+                tests: 11,
+                passed: $passed,
+                failed: $failed,
+                duration: ($total_duration * 1000)
+              },
+              results: {
+                tool: {
+                  name: "GitHub Actions CI"
+                },
+                summary: {
+                  tests: 11,
+                  passed: $passed,
+                  failed: $failed,
+                  pending: 0,
+                  skipped: 0,
+                  other: 0,
+                  start: 0,
+                  stop: 0
+                },
+                tests: []
+              },
+              environment: {
+                workflow_run: $run,
+                workflow_sha: $sha
+              }
             }' > logs/ctrf-report.json
           
-          echo "Optimized CTRF generated"
+          echo "CTRF generated"
+          cat logs/ctrf-report.json
+        continue-on-error: true
       
-      - name: 📝 Generate compact summary
+      - name: 📝 Generate summary
         run: |
-          # КОМПАКТНЫЙ SUMMARY для быстрых решений AI (200 байт vs 2.4KB)
-          CRITICAL_FAILURES=""
-          [ "${{ needs.fast-validation.result }}" == "failure" ] && CRITICAL_FAILURES="Fast Validation"
-          
           jq -n \
             --argjson run "${{ github.run_number }}" \
             --arg sha "${{ github.sha }}" \
-            --argjson passed "${{ env.PASSED }}" \
-            --argjson failed "${{ env.FAILED }}" \
-            --argjson rate "${{ env.SUCCESS_RATE }}" \
-            --arg critical "$CRITICAL_FAILURES" \
-            --arg trend "unchanged" \
+            --argjson passed "${PASSED:-0}" \
+            --argjson failed "${FAILED:-0}" \
+            --argjson rate "${SUCCESS_RATE:-0}" \
             '{
               run: $run,
               sha: $sha,
               passed: $passed,
               failed: $failed,
-              success_rate: $rate,
-              critical_failures: $critical,
-              trend: $trend
+              success_rate: $rate
             }' > logs/summary.json
           
-          echo "Compact summary generated"
+          echo "Summary generated"
           cat logs/summary.json
+        continue-on-error: true
       
-      - name: 📝 Generate report
+      - name: 📝 Generate diagnostic
         run: |
-          printf "# CI/CD Diagnostic Report\n\n## Test Results\n\n| Test Suite | Status | Duration |\n|--|--|--|\n" > logs/diagnostic.md
-          printf "| Fast Validation | ${{ needs.fast-validation.result }} | ${DURATION_FAST:-0}s |\n" >> logs/diagnostic.md
-          printf "| Smoke Tests | ${{ needs.smoke-tests.result }} | 0s |\n" >> logs/diagnostic.md
-          printf "| Essential Tests | ${{ needs.essential-tests.result }} | 0s |\n" >> logs/diagnostic.md
-          printf "| E2E Tests | ${{ needs.e2e-tests.result }} | ${DURATION_E2E:-0}s |\n" >> logs/diagnostic.md
-          printf "| Integration | ${{ needs.n8n-integration.result }} | ${DURATION_INTEGRATION:-0}s |\n" >> logs/diagnostic.md
-          printf "| Master E2E | ${{ needs.master-e2e.result }} | ${DURATION_MASTER:-0}s |\n\n" >> logs/diagnostic.md
-          printf "## Quick Stats\n\n- **Total Tests**: 12\n- **Passed**: %s\n- **Failed**: %s\n- **Success Rate**: %s%%\n" "${{ env.PASSED }}" "${{ env.FAILED }}" "${{ env.SUCCESS_RATE }}" >> logs/diagnostic.md
+          printf "# CI/CD Report\\n\\n## Results\\n\\n" > logs/diagnostic.md
+          printf "- Fast Validation: ${{ needs.fast-validation.result }}\\n" >> logs/diagnostic.md
+          printf "- Smoke Tests: ${{ needs.smoke-tests.result }}\\n" >> logs/diagnostic.md
+          printf "- Essential Tests: ${{ needs.essential-tests.result }}\\n" >> logs/diagnostic.md
+          printf "- E2E Tests: ${{ needs.e2e-tests.result }}\\n" >> logs/diagnostic.md
+          printf "- Integration: ${{ needs.n8n-integration.result }}\\n" >> logs/diagnostic.md
+          printf "- Master E2E: ${{ needs.master-e2e.result }}\\n\\n" >> logs/diagnostic.md
+          printf "## Stats\\n\\n- Passed: ${PASSED:-0}\\n- Failed: ${FAILED:-0}\\n- Rate: ${SUCCESS_RATE:-0}%%\\n" >> logs/diagnostic.md
           
-          echo "Diagnostic report generated"
+          echo "Diagnostic generated"
+        continue-on-error: true
       
-      - name: 📝 Summary
+      - name: 📝 Workflow info
         run: |
-          printf "Workflow: ci-max-parallel-clean\nRun: ${{ github.run_number }}\nRun ID: ${{ github.run_id }}\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref_name }}\nActor: ${{ github.actor }}\nRepository: ${{ github.repository }}\nTime: %s\n\nResults: %s passed, %s failed\nSuccess Rate: %s%%\n" \
-            "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "${{ env.PASSED }}" "${{ env.FAILED }}" "${{ env.SUCCESS_RATE }}" \
-            > logs/workflow-info.txt
-          
+          printf "Run: ${{ github.run_number }}\\nCommit: ${{ github.sha }}\\nBranch: ${{ github.ref_name }}\\n" > logs/workflow-info.txt
           ls -1 logs/ > logs/index.txt
-          
-          echo "Summary complete"
-          echo "Total files: $(ls -1 logs/ | wc -l)"
+          echo "Info generated"
+        continue-on-error: true
       
       - name: 📊 Publish CTRF
         uses: ctrf-io/github-test-reporter@v1
@@ -793,36 +727,19 @@ jobs:
           summary-report: true
           test-report: true
           failed-report: true
-        if: always()
+        continue-on-error: true
       
-      - name: 📤 Upload full artifacts (7 days)
+      - name: 📤 Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ci-artifacts-full
           path: |
-            logs/ctrf-report.json
-            logs/diagnostic.md
-            logs/errors-detailed.txt
-            logs/errors-grouped.json
-            logs/*-test.log
-            logs/*-metrics.json
+            logs/
           retention-days: 7
           compression-level: 9
         if: always()
       
-      - name: 📤 Upload compact summary (90 days)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-summary-compact
-          path: |
-            logs/summary.json
-            logs/workflow-info.txt
-            logs/index.txt
-          retention-days: 90
-          compression-level: 9
-        if: always()
-      
-      - name: 🧹 Delete temp
+      - name: 🧹 Cleanup
         uses: geekyeggo/delete-artifact@v5
         with:
           name: temp-logs-*
