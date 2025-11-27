@@ -624,10 +624,10 @@ jobs:
             
             local error_msg=""
             if ls logs/${prefix}-*.log 1> /dev/null 2>&1; then
-              error_msg=$(grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" logs/${prefix}-*.log 2>/dev/null | head -1 | sed 's/"/\\"/g' || echo "")
+              error_msg=$(grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" logs/${prefix}-*.log 2>/dev/null | head -1 | sed 's/"/\\&/g; s/$//' || echo "")
               if [ -z "$error_msg" ]; then
                 # Если grep не нашёл, берём последние 3 строки лога
-                error_msg=$(tail -3 logs/${prefix}-*.log 2>/dev/null | tr '\n' ' ' | sed 's/"/\\"/g')
+                error_msg=$(tail -3 logs/${prefix}-*.log 2>/dev/null | tr '\n' ' ' | sed 's/"/\\&/g; s/$//')
               fi
             fi
             
@@ -649,37 +649,26 @@ jobs:
           
           echo "======================================"
           
-          # Сохраняем в переменные окружения
-          {
-            echo "ERROR_FAST<<EOF"
-            echo "$ERROR_FAST"
-            echo "EOF"
-            echo "ERROR_SMOKE<<EOF"
-            echo "$ERROR_SMOKE"
-            echo "EOF"
-            echo "ERROR_ESSENTIAL<<EOF"
-            echo "$ERROR_ESSENTIAL"
-            echo "EOF"
-            echo "ERROR_E2E<<EOF"
-            echo "$ERROR_E2E"
-            echo "EOF"
-            echo "ERROR_INTEGRATION<<EOF"
-            echo "$ERROR_INTEGRATION"
-            echo "EOF"
-            echo "ERROR_MASTER<<EOF"
-            echo "$ERROR_MASTER"
-            echo "EOF"
-          } >> $GITHUB_ENV
+          # Сохраняем ошибки в отдельные файлы (для безопасной вставки в JSON)
+          echo "$ERROR_FAST" > /tmp/error_fast.txt
+          echo "$ERROR_SMOKE" > /tmp/error_smoke.txt
+          echo "$ERROR_ESSENTIAL" > /tmp/error_essential.txt
+          echo "$ERROR_E2E" > /tmp/error_e2e.txt
+          echo "$ERROR_INTEGRATION" > /tmp/error_integration.txt
+          echo "$ERROR_MASTER" > /tmp/error_master.txt
           
-          # Сохраняем в файл
-          cat > logs/errors.txt << EOF
+          # Сохраняем в человеко-читаемый формат
+          cat > logs/errors.txt << 'ERRORS_EOF'
 Fast Validation: $ERROR_FAST
 Smoke Tests: $ERROR_SMOKE
 Essential Tests: $ERROR_ESSENTIAL
 E2E Tests: $ERROR_E2E
 Integration: $ERROR_INTEGRATION
 Master E2E: $ERROR_MASTER
-EOF
+ERRORS_EOF
+          
+          # Подставляем переменные
+          sed -i "s/\$ERROR_FAST/$ERROR_FAST/g; s/\$ERROR_SMOKE/$ERROR_SMOKE/g; s/\$ERROR_ESSENTIAL/$ERROR_ESSENTIAL/g; s/\$ERROR_E2E/$ERROR_E2E/g; s/\$ERROR_INTEGRATION/$ERROR_INTEGRATION/g; s/\$ERROR_MASTER/$ERROR_MASTER/g" logs/errors.txt
           
           echo "📝 Errors saved to logs/errors.txt"
           cat logs/errors.txt
@@ -696,38 +685,60 @@ EOF
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          cat > logs/ctrf-report.json << EOF
-{
-  "results": {
-    "tool": {"name": "n8n-scraper-docker", "version": "3.0.0"},
-    "summary": {
-      "tests": 12,
-      "passed": ${PASSED},
-      "failed": ${FAILED},
-      "pending": 0,
-      "skipped": 0,
-      "other": 0,
-      "start": $(date -u -d '12 minutes ago' +%s)000,
-      "stop": $(date -u +%s)000
-    },
-    "tests": [
-      {"name": "Fast Validation", "status": "${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_FAST}"},
-      {"name": "Smoke: PostgreSQL", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-      {"name": "Smoke: Redis", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-      {"name": "Smoke: Tor", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-      {"name": "Smoke: Prometheus", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-      {"name": "Smoke: Grafana", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-      {"name": "Essential: Health", "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_ESSENTIAL}"},
-      {"name": "Essential: Workflow", "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_ESSENTIAL}"},
-      {"name": "E2E: Node.js", "status": "${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_E2E}"},
-      {"name": "Integration: n8n", "status": "${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_INTEGRATION}"},
-      {"name": "Master: Full Stack", "status": "${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_MASTER}"},
-      {"name": "Perf: Latency", "status": "passed", "duration": 5300}
-    ],
-    "extra": {"prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92}}
-  }
-}
-EOF
+          # Экранируем ошибки для JSON используя jq
+          ERROR_FAST=$(cat /tmp/error_fast.txt | jq -Rs .)
+          ERROR_SMOKE=$(cat /tmp/error_smoke.txt | jq -Rs .)
+          ERROR_ESSENTIAL=$(cat /tmp/error_essential.txt | jq -Rs .)
+          ERROR_E2E=$(cat /tmp/error_e2e.txt | jq -Rs .)
+          ERROR_INTEGRATION=$(cat /tmp/error_integration.txt | jq -Rs .)
+          ERROR_MASTER=$(cat /tmp/error_master.txt | jq -Rs .)
+          
+          # Создаём JSON используя jq для корректного экранирования
+          jq -n \
+            --argjson passed "$PASSED" \
+            --argjson failed "$FAILED" \
+            --arg error_fast "$(cat /tmp/error_fast.txt)" \
+            --arg error_smoke "$(cat /tmp/error_smoke.txt)" \
+            --arg error_essential "$(cat /tmp/error_essential.txt)" \
+            --arg error_e2e "$(cat /tmp/error_e2e.txt)" \
+            --arg error_integration "$(cat /tmp/error_integration.txt)" \
+            --arg error_master "$(cat /tmp/error_master.txt)" \
+            --arg status_fast "${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}" \
+            --arg status_smoke "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}" \
+            --arg status_essential "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}" \
+            --arg status_e2e "${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}" \
+            --arg status_integration "${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}" \
+            --arg status_master "${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}" \
+            '{
+              "results": {
+                "tool": {"name": "n8n-scraper-docker", "version": "3.0.0"},
+                "summary": {
+                  "tests": 12,
+                  "passed": $passed,
+                  "failed": $failed,
+                  "pending": 0,
+                  "skipped": 0,
+                  "other": 0,
+                  "start": (now - 720) * 1000 | floor,
+                  "stop": (now * 1000) | floor
+                },
+                "tests": [
+                  {"name": "Fast Validation", "status": $status_fast, "message": $error_fast},
+                  {"name": "Smoke: PostgreSQL", "status": $status_smoke, "message": $error_smoke},
+                  {"name": "Smoke: Redis", "status": $status_smoke, "message": $error_smoke},
+                  {"name": "Smoke: Tor", "status": $status_smoke, "message": $error_smoke},
+                  {"name": "Smoke: Prometheus", "status": $status_smoke, "message": $error_smoke},
+                  {"name": "Smoke: Grafana", "status": $status_smoke, "message": $error_smoke},
+                  {"name": "Essential: Health", "status": $status_essential, "message": $error_essential},
+                  {"name": "Essential: Workflow", "status": $status_essential, "message": $error_essential},
+                  {"name": "E2E: Node.js", "status": $status_e2e, "message": $error_e2e},
+                  {"name": "Integration: n8n", "status": $status_integration, "message": $error_integration},
+                  {"name": "Master: Full Stack", "status": $status_master, "message": $error_master},
+                  {"name": "Perf: Latency", "status": "passed", "duration": 5300}
+                ],
+                "extra": {"prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92}}
+              }
+            }' > logs/ctrf-report.json
           
           cat > logs/workflow-info.txt << EOF
 Workflow: ${{ github.workflow }}
