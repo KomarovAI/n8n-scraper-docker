@@ -85,17 +85,19 @@ jobs:
           path: /tmp/n8n-enhanced.tar.gz
           retention-days: 1
       
-      - name: 📜 Save logs on failure
-        if: failure()
+      - name: 📜 Save logs to unified structure
+        if: always()
         run: |
-          mkdir -p logs
-          cp /tmp/docker-build.log logs/fast-validation.log 2>/dev/null || echo "No build log found" > logs/fast-validation.log
+          mkdir -p logs/fast-validation
+          cp /tmp/docker-build.log logs/fast-validation/build.log 2>/dev/null || echo "No build log" > logs/fast-validation/build.log
+          echo "fast-validation/build.log" > logs/index.txt
+          echo "Status: ${{ job.status }}" > logs/fast-validation/status.txt
       
-      - name: 📤 Upload logs artifact
-        if: failure()
+      - name: 📤 Upload to combined logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-fast-validation
+          name: test-logs-combined
           path: logs/
           retention-days: 7
 
@@ -110,18 +112,23 @@ jobs:
       matrix:
         test:
           - name: "PostgreSQL"
+            slug: "postgres"
             script: "tests/smoke/test_postgres_redis.sh"
             services: "postgres"
           - name: "Redis"
+            slug: "redis"
             script: "tests/smoke/test_postgres_redis.sh"
             services: "redis"
           - name: "Tor Proxy"
+            slug: "tor"
             script: "tests/smoke/test_tor.sh"
             services: "tor"
           - name: "Prometheus"
+            slug: "prometheus"
             script: "tests/smoke/test_monitoring.sh"
             services: "prometheus"
           - name: "Grafana"
+            slug: "grafana"
             script: "tests/smoke/test_monitoring.sh"
             services: "grafana"
     steps:
@@ -169,19 +176,23 @@ jobs:
           chmod +x ${{ matrix.test.script }} || true
           bash ${{ matrix.test.script }} 2>&1 | tee /tmp/test-output.log
       
-      - name: 📜 Save logs on failure
-        if: failure()
+      - name: 📜 Save logs to unified structure
+        if: always()
         run: |
-          mkdir -p logs
-          docker-compose ps > logs/smoke-${{ matrix.test.name }}-ps.log 2>&1
-          docker-compose logs --tail=100 ${{ matrix.test.services }} > logs/smoke-${{ matrix.test.name }}-docker.log 2>&1
-          cp /tmp/test-output.log logs/smoke-${{ matrix.test.name }}-test.log 2>/dev/null || echo "No test log" > logs/smoke-${{ matrix.test.name }}-test.log
+          mkdir -p logs/smoke-${{ matrix.test.slug }}
+          docker-compose ps > logs/smoke-${{ matrix.test.slug }}/docker-ps.log 2>&1
+          docker-compose logs --tail=100 ${{ matrix.test.services }} > logs/smoke-${{ matrix.test.slug }}/docker-logs.log 2>&1
+          cp /tmp/test-output.log logs/smoke-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > logs/smoke-${{ matrix.test.slug }}/test-output.log
+          echo "Status: ${{ job.status }}" > logs/smoke-${{ matrix.test.slug }}/status.txt
+          echo "smoke-${{ matrix.test.slug }}/docker-ps.log" >> logs/index.txt
+          echo "smoke-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
+          echo "smoke-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload logs artifact
-        if: failure()
+      - name: 📤 Upload to combined logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-smoke-${{ matrix.test.name }}
+          name: test-logs-combined
           path: logs/
           retention-days: 7
       
@@ -200,9 +211,11 @@ jobs:
       matrix:
         test:
           - name: "Health Check"
+            slug: "health"
             script: "tests/essential/test_health.sh"
             services: "n8n postgres redis"
           - name: "Workflow Test"
+            slug: "workflow"
             script: "tests/essential/test_workflow.sh"
             services: "n8n postgres redis"
     steps:
@@ -248,19 +261,23 @@ jobs:
           chmod +x ${{ matrix.test.script }}
           bash ${{ matrix.test.script }} 2>&1 | tee /tmp/test-output.log
       
-      - name: 📜 Save logs on failure
-        if: failure()
+      - name: 📜 Save logs to unified structure
+        if: always()
         run: |
-          mkdir -p logs
-          docker-compose ps > logs/essential-${{ matrix.test.name }}-ps.log 2>&1
-          docker-compose logs --tail=150 > logs/essential-${{ matrix.test.name }}-docker.log 2>&1
-          cp /tmp/test-output.log logs/essential-${{ matrix.test.name }}-test.log 2>/dev/null || echo "No test log" > logs/essential-${{ matrix.test.name }}-test.log
+          mkdir -p logs/essential-${{ matrix.test.slug }}
+          docker-compose ps > logs/essential-${{ matrix.test.slug }}/docker-ps.log 2>&1
+          docker-compose logs --tail=150 > logs/essential-${{ matrix.test.slug }}/docker-logs.log 2>&1
+          cp /tmp/test-output.log logs/essential-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > logs/essential-${{ matrix.test.slug }}/test-output.log
+          echo "Status: ${{ job.status }}" > logs/essential-${{ matrix.test.slug }}/status.txt
+          echo "essential-${{ matrix.test.slug }}/docker-ps.log" >> logs/index.txt
+          echo "essential-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
+          echo "essential-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload logs artifact
-        if: failure()
+      - name: 📤 Upload to combined logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-essential-${{ matrix.test.name }}
+          name: test-logs-combined
           path: logs/
           retention-days: 7
       
@@ -328,21 +345,24 @@ jobs:
           if [ -f "workflow-test.js" ]; then
             node workflow-test.js 2>&1 | tee /tmp/test-output.log
           else
-            echo "⚠️  No E2E test found"
+            echo "⚠️  No E2E test found" | tee /tmp/test-output.log
           fi
       
-      - name: 📜 Save logs on failure
-        if: failure()
+      - name: 📜 Save logs to unified structure
+        if: always()
         run: |
-          mkdir -p logs
-          docker-compose logs --tail=200 n8n > logs/e2e-docker.log 2>&1
-          cp /tmp/test-output.log logs/e2e-test.log 2>/dev/null || echo "No test log" > logs/e2e-test.log
+          mkdir -p logs/e2e
+          docker-compose logs --tail=200 n8n > logs/e2e/docker-n8n.log 2>&1
+          cp /tmp/test-output.log logs/e2e/test-output.log 2>/dev/null || echo "No test output" > logs/e2e/test-output.log
+          echo "Status: ${{ job.status }}" > logs/e2e/status.txt
+          echo "e2e/docker-n8n.log" >> logs/index.txt
+          echo "e2e/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload logs artifact
-        if: failure()
+      - name: 📤 Upload to combined logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-e2e
+          name: test-logs-combined
           path: logs/
           retention-days: 7
       
@@ -400,22 +420,26 @@ jobs:
             chmod +x tests/n8n/test_workflows.sh
             bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/test-output.log
           else
-            echo "⚠️  Workflow test file not found, skipping"
+            echo "⚠️  Workflow test file not found, skipping" | tee /tmp/test-output.log
           fi
       
-      - name: 📜 Save logs on failure
-        if: failure()
+      - name: 📜 Save logs to unified structure
+        if: always()
         run: |
-          mkdir -p logs
-          docker-compose logs --tail=200 n8n > logs/integration-n8n.log 2>&1
-          docker-compose logs --tail=100 postgres > logs/integration-postgres.log 2>&1
-          cp /tmp/test-output.log logs/integration-test.log 2>/dev/null || echo "No test log" > logs/integration-test.log
+          mkdir -p logs/integration
+          docker-compose logs --tail=200 n8n > logs/integration/docker-n8n.log 2>&1
+          docker-compose logs --tail=100 postgres > logs/integration/docker-postgres.log 2>&1
+          cp /tmp/test-output.log logs/integration/test-output.log 2>/dev/null || echo "No test output" > logs/integration/test-output.log
+          echo "Status: ${{ job.status }}" > logs/integration/status.txt
+          echo "integration/docker-n8n.log" >> logs/index.txt
+          echo "integration/docker-postgres.log" >> logs/index.txt
+          echo "integration/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload logs artifact
-        if: failure()
+      - name: 📤 Upload to combined logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-integration
+          name: test-logs-combined
           path: logs/
           retention-days: 7
       
@@ -475,22 +499,29 @@ jobs:
           chmod +x tests/master/test_full_e2e.sh
           bash tests/master/test_full_e2e.sh 2>&1 | tee /tmp/test-output.log
       
-      - name: 📜 Save logs on failure
-        if: failure()
+      - name: 📜 Save logs to unified structure
+        if: always()
         run: |
-          mkdir -p logs
-          docker-compose ps > logs/master-ps.log 2>&1
-          docker-compose logs --tail=200 n8n > logs/master-n8n.log 2>&1
-          docker-compose logs --tail=100 postgres > logs/master-postgres.log 2>&1
-          docker-compose logs --tail=50 redis > logs/master-redis.log 2>&1
-          docker-compose logs --tail=50 prometheus > logs/master-prometheus.log 2>&1
-          cp /tmp/test-output.log logs/master-test.log 2>/dev/null || echo "No test log" > logs/master-test.log
+          mkdir -p logs/master
+          docker-compose ps > logs/master/docker-ps.log 2>&1
+          docker-compose logs --tail=200 n8n > logs/master/docker-n8n.log 2>&1
+          docker-compose logs --tail=100 postgres > logs/master/docker-postgres.log 2>&1
+          docker-compose logs --tail=50 redis > logs/master/docker-redis.log 2>&1
+          docker-compose logs --tail=50 prometheus > logs/master/docker-prometheus.log 2>&1
+          cp /tmp/test-output.log logs/master/test-output.log 2>/dev/null || echo "No test output" > logs/master/test-output.log
+          echo "Status: ${{ job.status }}" > logs/master/status.txt
+          echo "master/docker-ps.log" >> logs/index.txt
+          echo "master/docker-n8n.log" >> logs/index.txt
+          echo "master/docker-postgres.log" >> logs/index.txt
+          echo "master/docker-redis.log" >> logs/index.txt
+          echo "master/docker-prometheus.log" >> logs/index.txt
+          echo "master/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload logs artifact
-        if: failure()
+      - name: 📤 Upload to combined logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-master
+          name: test-logs-combined
           path: logs/
           retention-days: 7
       
@@ -508,11 +539,20 @@ jobs:
       - name: 📊 Checkout code
         uses: actions/checkout@v4
       
-      - name: 📥 Download all log artifacts
+      - name: 📥 Download unified logs artifact
         uses: actions/download-artifact@v4
         with:
-          path: all-logs/
+          name: test-logs-combined
+          path: logs/
         continue-on-error: true
+      
+      - name: 📋 Show log structure
+        run: |
+          echo "📦 Log structure:"
+          tree logs/ || find logs/ -type f
+          echo ""
+          echo "📄 Index file:"
+          cat logs/index.txt 2>/dev/null || echo "No index.txt found"
       
       - name: 🔍 Analyze logs and extract errors
         id: analyze-logs
@@ -522,21 +562,22 @@ jobs:
           # Функция для извлечения первой ошибки из логов
           extract_error() {
             local log_dir="$1"
-            if [ -d "$log_dir" ]; then
+            if [ -d "logs/$log_dir" ]; then
               # Ищем ERROR, error, failed, FAILED, или exit code
-              grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" "$log_dir"/*.log 2>/dev/null | head -1 | sed 's/"/\\\\&/g' || echo "Unknown error"
+              grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" \
+                "logs/$log_dir"/*.log 2>/dev/null | head -1 | sed 's/"/\\"/g' || echo "Unknown error"
             else
               echo "No logs found"
             fi
           }
           
           # Извлекаем ошибки из каждой джобы
-          ERROR_FAST_VALIDATION=$(extract_error "all-logs/logs-fast-validation")
-          ERROR_SMOKE=$(extract_error "all-logs/logs-smoke-PostgreSQL")
-          ERROR_ESSENTIAL=$(extract_error "all-logs/logs-essential-Health Check")
-          ERROR_E2E=$(extract_error "all-logs/logs-e2e")
-          ERROR_INTEGRATION=$(extract_error "all-logs/logs-integration")
-          ERROR_MASTER=$(extract_error "all-logs/logs-master")
+          ERROR_FAST_VALIDATION=$(extract_error "fast-validation")
+          ERROR_SMOKE=$(extract_error "smoke-postgres")
+          ERROR_ESSENTIAL=$(extract_error "essential-health")
+          ERROR_E2E=$(extract_error "e2e")
+          ERROR_INTEGRATION=$(extract_error "integration")
+          ERROR_MASTER=$(extract_error "master")
           
           # Сохраняем в файл для использования в следующих степах
           echo "ERROR_FAST_VALIDATION=$ERROR_FAST_VALIDATION" >> $GITHUB_ENV
@@ -545,6 +586,14 @@ jobs:
           echo "ERROR_E2E=$ERROR_E2E" >> $GITHUB_ENV
           echo "ERROR_INTEGRATION=$ERROR_INTEGRATION" >> $GITHUB_ENV
           echo "ERROR_MASTER=$ERROR_MASTER" >> $GITHUB_ENV
+          
+          echo "✅ Errors extracted"
+          echo "Fast Validation: $ERROR_FAST_VALIDATION"
+          echo "Smoke: $ERROR_SMOKE"
+          echo "Essential: $ERROR_ESSENTIAL"
+          echo "E2E: $ERROR_E2E"
+          echo "Integration: $ERROR_INTEGRATION"
+          echo "Master: $ERROR_MASTER"
       
       - name: 📦 Generate Enhanced CTRF Report with Error Details
         run: |
@@ -740,15 +789,35 @@ jobs:
           
           ## 📦 Artifacts
           
-          - [CTRF Report JSON](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)
-          - [Failed Job Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts) (retained for 7 days)
+          **Single Unified Artifact:** [test-logs-combined.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)
+          
+          ```
+          test-logs-combined/
+          ├── fast-validation/
+          │   ├── build.log
+          │   └── status.txt
+          ├── smoke-postgres/
+          │   ├── docker-ps.log
+          │   ├── docker-logs.log
+          │   ├── test-output.log
+          │   └── status.txt
+          ├── smoke-redis/
+          ├── essential-health/
+          ├── essential-workflow/
+          ├── e2e/
+          ├── integration/
+          ├── master/
+          └── index.txt (log inventory)
+          ```
+          
+          **Retention:** 7 days
           
           ---
           
           [Full Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | `${{ github.sha }}` | `${{ github.ref_name }}` | #${{ github.run_number }}
           
           ---
-          *CTRF v3.0 | YAML AI-Opt (85% token ↓) | Auto Error Detection ✅ | [Study](https://betterprogramming.pub/yaml-vs-json-which-is-more-efficient-for-language-models-5bc11dd0f6df)*
+          *CTRF v3.0 | YAML AI-Opt (85% token ↓) | Single Unified Artifact 📦 | Auto Error Detection ✅*
           SUMMARY_BLOCK
           
           echo "✅ AI-optimized summary with diagnostics generated"
