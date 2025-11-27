@@ -1,6 +1,6 @@
-# ✅ ОТКАТ: Стабильная Alpine-based версия n8n
-# Проблема: n8nio/n8n:latest имеет неизвестные ограничения
-# Решение: Явный Alpine тег 1.18.0
+# ✅ FINAL FIX: Убран COPY с shell redirects
+# Проблема: COPY не поддерживает 2>/dev/null || true
+# Решение: Простое COPY для существующих директорий
 
 FROM n8nio/n8n:1.18.0-alpine
 
@@ -39,13 +39,13 @@ RUN npm install --prefix /home/node/.n8n \
     redis@^4.6.0 \
     prom-client@^15.1.0
 
-# Copy custom directories (если есть)
+# ✅ COPY без shell redirects (все директории существуют в репо)
 USER root
-COPY --chown=node:node nodes /home/node/.n8n/nodes/ 2>/dev/null || true
-COPY --chown=node:node utils /home/node/.n8n/utils/ 2>/dev/null || true
-COPY --chown=node:node monitoring /home/node/.n8n/monitoring/ 2>/dev/null || true
-COPY --chown=node:node workflows /home/node/.n8n/workflows/ 2>/dev/null || true
-COPY --chown=node:node scrapers /home/node/.n8n/scrapers/ 2>/dev/null || true
+COPY --chown=node:node nodes /home/node/.n8n/nodes/
+COPY --chown=node:node utils /home/node/.n8n/utils/
+COPY --chown=node:node monitoring /home/node/.n8n/monitoring/
+COPY --chown=node:node workflows /home/node/.n8n/workflows/
+COPY --chown=node:node scrapers /home/node/.n8n/scrapers/
 USER node
 
 # Healthcheck синхронизирован с docker-compose.yml (90s start-period)
