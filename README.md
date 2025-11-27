@@ -138,7 +138,7 @@ grafana (3000)     → Monitoring dashboards
 ✅ **CI/CD Tested**: Parallel execution, 2.5min runtime  
 ✅ **Production Metrics**: 87% success, 5.3s latency, $2.88/1000 URLs
 
-**Detailed architecture with diagrams**: See [ARCHITECTURE.md](ARCHITECTURE.md) 📊
+**📊 Detailed architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ---
 
@@ -187,11 +187,13 @@ JINA_API_KEY=jina-your-key-here            # @ai-ignore
 openssl rand -base64 24  # Generates secure 24-char password
 ```
 
+**📝 Full configuration guide**: See [.env.example](.env.example)
+
 ---
 
 ## 🧪 Testing
 
-### 🚀 Parallel CI/CD Pipeline (NEW!)
+### 🚀 Parallel CI/CD Pipeline
 
 **Optimized execution time: ~2.5 minutes** (69% faster than sequential)
 
@@ -216,32 +218,7 @@ Job 4: Master E2E Test 🏆              ~2.5 min
   └─ Full stack validation (all 8 services)
 ```
 
-#### 🤖 AI-Optimized Test Reporting
-
-**YAML-based CTRF reports with 85% token reduction** for LLM consumption.
-
-**Benefits:**
-- ✅ **85% fewer tokens** vs verbose JSON (8000 → 1200 tokens)
-- ✅ **50% cost savings** on LLM API calls
-- ✅ **Faster parsing** for AI systems
-- ✅ **Full information retention** (zero data loss)
-
-**Example AI-optimized report:**
-```yaml
-sum: {tot: 12, ok: 12, fail: 0, rate: 100, dur_m: 12, par: 12}
-prod: {scrape: 87, lat_ms: 5300, cost: 2.88, up: 99.8, cf: 92}
-suites:
-  validation: {n: 1, st: ok, dur_m: 5, cov: [lint,sec,build]}
-  smoke: {n: 5, st: ok, dur_m: 10, svc: [pg,redis,tor,prom,graf]}
-  # ... (all test suites with compact metrics)
-concl: prod_ready
-```
-
-**See full documentation**: [docs/CTRF_AI_OPTIMIZED.md](docs/CTRF_AI_OPTIMIZED.md)
-
-**Scientific basis**: [OpenAI YAML Study](https://betterprogramming.pub/yaml-vs-json-which-is-more-efficient-for-language-models-5bc11dd0f6df), [IBM Token Optimization](https://developer.ibm.com/articles/awb-token-optimization-backbone-of-effective-prompt-engineering/)
-
-#### Master E2E Test (Most Critical)
+#### Master E2E Test
 
 The **Master E2E Test** validates complete workflow:
 
@@ -262,28 +239,7 @@ chmod +x tests/master/test_full_e2e.sh
 bash tests/master/test_full_e2e.sh
 ```
 
-### Run Tests Locally
-
-```bash
-# All tests (parallel)
-docker-compose -f docker-compose.test.yml up --abort-on-container-exit
-
-# Specific test suite
-bash tests/smoke/test_postgres_redis.sh
-bash tests/smoke/test_tor.sh
-bash tests/smoke/test_monitoring.sh
-
-# Master E2E test
-bash tests/master/test_full_e2e.sh
-
-# Manual verification
-docker-compose up -d && docker-compose ps
-```
-
-### CI/CD Workflows
-
-- **Primary**: [parallel-tests.yml](.github/workflows/parallel-tests.yml) - Optimized parallel execution
-- **Essential**: [essential-tests.yml](.github/workflows/essential-tests.yml) - Quick smoke tests
+**📖 Full testing guide**: See [tests/](tests/) and [docs/CTRF_AI_OPTIMIZED.md](docs/CTRF_AI_OPTIMIZED.md)
 
 ---
 
@@ -346,12 +302,12 @@ docker-compose exec n8n /bin/sh
 ```
 .
 ├── .ai/                      # AI assistant instructions
-│   └── instructions.md        # Unified LLM guidelines
+│   └── instructions.md        # Unified LLM guidelines (single source of truth)
 ├── .github/                  # CI/CD, GitHub configs
-│   ├── workflows/             # GitHub Actions pipelines
-│   │   ├── parallel-tests.yml  # 🚀 Optimized parallel CI/CD
-│   │   └── essential-tests.yml # Quick smoke tests
-│   └── copilot-instructions.md
+│   └── workflows/             # GitHub Actions pipelines
+│       ├── parallel-tests.yml  # 🚀 Optimized parallel CI/CD
+│       ├── essential-tests.yml # Quick smoke tests
+│       └── check-duplicates.yml # Documentation integrity checks
 ├── docs/                     # Technical documentation
 │   ├── TROUBLESHOOTING.md     # 🆘 Comprehensive troubleshooting
 │   ├── HYBRID_FALLBACK_STRATEGY.md
@@ -371,6 +327,7 @@ docker-compose exec n8n /bin/sh
 ├── docker-compose.yml        # Service orchestration
 ├── .env.example              # Environment template
 ├── .aimeta.json              # AI optimization metadata
+├── .aidocs-map.json          # 📚 Documentation structure map
 └── README.md                 # This file
 ```
 
@@ -383,7 +340,7 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 ### Improvements over v1.1
 
 | Metric | v1.1 | v2.0 | Change |
-|--------|------|------|---------|
+|--------|------|------|--------|
 | **Context tokens** | 8,500 | **1,250** | **-85%** |
 | **Documentation files** | 14 | **6** | **-57%** |
 | **AI instruction files** | 3 | **1** | **-67%** |
@@ -396,20 +353,43 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 ### Key Features
 
 ✅ **Unified AI Instructions**: Single [.ai/instructions.md](.ai/instructions.md) for all LLM assistants  
+✅ **Documentation Map**: [.aidocs-map.json](.aidocs-map.json) defines structure explicitly  
 ✅ **TOON Format Metadata**: Token-efficient alternative to JSON  
 ✅ **Zero Redundancy**: No duplicate content across files  
 ✅ **2-Level Hierarchy**: README → Technical docs (optimal for parsing)  
 ✅ **Cross-AI Compatible**: Works with Copilot, Cursor, Windsurf, ChatGPT, Claude, Gemini, Perplexity  
 ✅ **Machine-Readable**: Structured metadata in [.aimeta.json](.aimeta.json)  
 ✅ **Parallel CI/CD**: 69% faster test execution with matrix strategy  
-✅ **AI-Optimized Reporting**: 85% token reduction in test reports ([docs/CTRF_AI_OPTIMIZED.md](docs/CTRF_AI_OPTIMIZED.md))
+✅ **AI-Optimized Reporting**: 85% token reduction in test reports ([docs/CTRF_AI_OPTIMIZED.md](docs/CTRF_AI_OPTIMIZED.md))  
+✅ **Automated Validation**: CI/CD checks prevent documentation duplicates
 
 ### AI Assistant Support
 
-- **GitHub Copilot**: [.github/copilot-instructions.md](.github/copilot-instructions.md)
-- **Cursor**: [.cursorrules](.cursorrules)
-- **Windsurf**: [.windsurfrules](.windsurfrules)
-- **All LLMs**: [.ai/instructions.md](.ai/instructions.md) (unified)
+**All AI assistants use the same unified instructions**: [.ai/instructions.md](.ai/instructions.md)
+
+**Supported assistants**:
+- GitHub Copilot
+- Cursor
+- Windsurf  
+- ChatGPT
+- Claude
+- Gemini
+- Perplexity
+
+**Documentation structure**: See [.aidocs-map.json](.aidocs-map.json)
+
+---
+
+## 📚 Full Documentation
+
+- **Quick Start**: This README (you're here!)
+- **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) - Detailed system design with diagrams
+- **Troubleshooting**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Comprehensive problem-solving guide
+- **Hybrid Fallback**: [docs/HYBRID_FALLBACK_STRATEGY.md](docs/HYBRID_FALLBACK_STRATEGY.md) - Scraping strategy details
+- **Enhanced Scrapers**: [docs/NODRIVER_ENHANCED_V2.md](docs/NODRIVER_ENHANCED_V2.md) - nodriver implementation
+- **AI Test Reports**: [docs/CTRF_AI_OPTIMIZED.md](docs/CTRF_AI_OPTIMIZED.md) - Token-efficient reporting
+- **AI Instructions**: [.ai/instructions.md](.ai/instructions.md) - Unified LLM guidelines
+- **Docs Structure**: [.aidocs-map.json](.aidocs-map.json) - Explicit documentation map
 
 ---
 
@@ -418,10 +398,6 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 - [Docker Hub - n8n](https://hub.docker.com/r/n8nio/n8n)
 - [n8n Documentation](https://docs.n8n.io/)
 - [GitHub Actions (CI/CD)](https://github.com/KomarovAI/n8n-scraper-docker/actions)
-- [Architecture Details](ARCHITECTURE.md)
-- [Technical Docs](docs/)
-- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
-- [AI-Optimized Test Reports](docs/CTRF_AI_OPTIMIZED.md)
 
 ---
 
@@ -434,14 +410,15 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 ## 🏆 Status
 
 ✅ **Production-Ready** - Tested in production environments  
-✅ **AI-Optimized v2.0** - 85% context reduction, unified instructions  
+✅ **AI-Optimized v2.0** - 85% context reduction, unified instructions, zero duplicates  
 ✅ **Parallel Tests** - 2.5min CI/CD execution (69% faster)  
 ✅ **Master E2E Test** - 10-step full stack validation  
 ✅ **AI Test Reports** - 85% token reduction (YAML-based)  
 ✅ **Fully Monitored** - Prometheus + Grafana dashboards  
 ✅ **Security Scanned** - Trivy + TruffleHog in CI/CD  
-✅ **Automated Setup** - One-command installation script
+✅ **Automated Setup** - One-command installation script  
+✅ **Documentation Validated** - CI/CD checks for duplicates
 
 ---
 
-**Last Updated**: 2025-11-27 | **Version**: 2.0.1 | **License**: MIT
+**Last Updated**: 2025-11-28 | **Version**: 2.0.2 | **License**: MIT
