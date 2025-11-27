@@ -497,8 +497,16 @@ jobs:
           START_TIME=$(date -u -d '12 minutes ago' +%s)000
           STOP_TIME=$(date -u +%s)000
           
+          # Определение статуса для каждого теста
+          STATUS_FAST_VALIDATION="${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_SMOKE_TESTS="${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_ESSENTIAL_TESTS="${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_E2E_TESTS="${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_N8N_INTEGRATION="${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}"
+          STATUS_MASTER_E2E="${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}"
+          
           # Создание CTRF отчёта (стандартный JSON для CTRF reporter)
-          cat > ctrf/ctrf-report.json <<'CTRF_EOF'
+          cat > ctrf/ctrf-report.json << EOF
           {
             "results": {
               "tool": {
@@ -507,26 +515,26 @@ jobs:
               },
               "summary": {
                 "tests": 12,
-                "passed": PASSED_PLACEHOLDER,
-                "failed": FAILED_PLACEHOLDER,
+                "passed": ${PASSED},
+                "failed": ${FAILED},
                 "pending": 0,
                 "skipped": 0,
                 "other": 0,
-                "start": START_TIME_PLACEHOLDER,
-                "stop": STOP_TIME_PLACEHOLDER
+                "start": ${START_TIME},
+                "stop": ${STOP_TIME}
               },
               "tests": [
-                {"name": "Fast Validation", "status": "STATUS_FAST_VALIDATION", "duration": 300000},
-                {"name": "Smoke: PostgreSQL", "status": "STATUS_SMOKE_TESTS", "duration": 120000},
-                {"name": "Smoke: Redis", "status": "STATUS_SMOKE_TESTS", "duration": 120000},
-                {"name": "Smoke: Tor", "status": "STATUS_SMOKE_TESTS", "duration": 120000},
-                {"name": "Smoke: Prometheus", "status": "STATUS_SMOKE_TESTS", "duration": 120000},
-                {"name": "Smoke: Grafana", "status": "STATUS_SMOKE_TESTS", "duration": 120000},
-                {"name": "Essential: Health", "status": "STATUS_ESSENTIAL_TESTS", "duration": 360000},
-                {"name": "Essential: Workflow", "status": "STATUS_ESSENTIAL_TESTS", "duration": 360000},
-                {"name": "E2E: Node.js", "status": "STATUS_E2E_TESTS", "duration": 720000},
-                {"name": "Integration: n8n", "status": "STATUS_N8N_INTEGRATION", "duration": 600000},
-                {"name": "Master: Full Stack", "status": "STATUS_MASTER_E2E", "duration": 900000},
+                {"name": "Fast Validation", "status": "${STATUS_FAST_VALIDATION}", "duration": 300000},
+                {"name": "Smoke: PostgreSQL", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000},
+                {"name": "Smoke: Redis", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000},
+                {"name": "Smoke: Tor", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000},
+                {"name": "Smoke: Prometheus", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000},
+                {"name": "Smoke: Grafana", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000},
+                {"name": "Essential: Health", "status": "${STATUS_ESSENTIAL_TESTS}", "duration": 360000},
+                {"name": "Essential: Workflow", "status": "${STATUS_ESSENTIAL_TESTS}", "duration": 360000},
+                {"name": "E2E: Node.js", "status": "${STATUS_E2E_TESTS}", "duration": 720000},
+                {"name": "Integration: n8n", "status": "${STATUS_N8N_INTEGRATION}", "duration": 600000},
+                {"name": "Master: Full Stack", "status": "${STATUS_MASTER_E2E}", "duration": 900000},
                 {"name": "Perf: Latency", "status": "passed", "duration": 5300}
               ],
               "extra": {
@@ -534,19 +542,7 @@ jobs:
               }
             }
           }
-CTRF_EOF
-          
-          # Замена плейсхолдеров
-          sed -i "s/PASSED_PLACEHOLDER/$PASSED/g" ctrf/ctrf-report.json
-          sed -i "s/FAILED_PLACEHOLDER/$FAILED/g" ctrf/ctrf-report.json
-          sed -i "s/START_TIME_PLACEHOLDER/$START_TIME/g" ctrf/ctrf-report.json
-          sed -i "s/STOP_TIME_PLACEHOLDER/$STOP_TIME/g" ctrf/ctrf-report.json
-          sed -i "s/STATUS_FAST_VALIDATION/${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}/g" ctrf/ctrf-report.json
-          sed -i "s/STATUS_SMOKE_TESTS/${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}/g" ctrf/ctrf-report.json
-          sed -i "s/STATUS_ESSENTIAL_TESTS/${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}/g" ctrf/ctrf-report.json
-          sed -i "s/STATUS_E2E_TESTS/${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}/g" ctrf/ctrf-report.json
-          sed -i "s/STATUS_N8N_INTEGRATION/${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}/g" ctrf/ctrf-report.json
-          sed -i "s/STATUS_MASTER_E2E/${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}/g" ctrf/ctrf-report.json
+          EOF
           
           echo "✅ CTRF report generated"
           cat ctrf/ctrf-report.json | jq '.' || cat ctrf/ctrf-report.json
@@ -562,7 +558,7 @@ CTRF_EOF
       
       - name: 🤖 Generate AI-Optimized Summary (YAML - 85pct Token Reduction)
         run: |
-          cat >> $GITHUB_STEP_SUMMARY <<'SUMMARY_BLOCK'
+          cat >> $GITHUB_STEP_SUMMARY << 'SUMMARY_BLOCK'
           # 🚀 n8n Scraper - AI-Optimized Test Report
           
           ```yaml
@@ -654,7 +650,7 @@ CTRF_EOF
           
           ---
           *CTRF v3.0 | YAML AI-Opt (85% token ↓) | [Study](https://betterprogramming.pub/yaml-vs-json-which-is-more-efficient-for-language-models-5bc11dd0f6df)*
-SUMMARY_BLOCK
+          SUMMARY_BLOCK
           
           echo "✅ AI-optimized summary generated"
       
