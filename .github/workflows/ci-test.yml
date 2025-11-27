@@ -884,7 +884,7 @@ jobs:
           mkdir -p ctrf
           
           # Создаём CTRF JSON формат с результатами всех тестов
-          cat > ctrf/test-results.json << 'EOF'
+          cat > ctrf/test-results.json << EOF
           {
             "results": {
               "tool": {
@@ -985,8 +985,6 @@ jobs:
         uses: ctrf-io/github-test-reporter@v1
         with:
           report-path: './ctrf/*.json'
-          annotate-only: false
-          on-fail-only: false
         if: always()
 
       - name: Check all test results
