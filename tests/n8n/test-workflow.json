@@ -1,0 +1,71 @@
+{
+  "name": "Test Workflow - Health Check",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://httpbin.org/get",
+        "options": {}
+      },
+      "id": "http-request",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate response\nconst response = $input.first().json;\n\nif (!response.url || !response.headers) {\n  throw new Error('Invalid response structure');\n}\n\nreturn {\n  json: {\n    status: 'success',\n    message: 'Workflow executed successfully',\n    url: response.url,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "code-node",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "test-v1",
+  "meta": {
+    "instanceId": "test"
+  },
+  "tags": [
+    {
+      "name": "test"
+    }
+  ]
+}
