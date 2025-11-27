@@ -562,10 +562,10 @@ jobs:
       
       - name: 🤖 Generate AI-Optimized Summary (YAML: 85% Token Reduction)
         run: |
-          cat >> $GITHUB_STEP_SUMMARY <<'SUMMARY_BLOCK'
+          cat >> $GITHUB_STEP_SUMMARY <<SUMMARY_BLOCK
           # 🚀 n8n Scraper - AI-Optimized Test Report
           
-          ```yaml
+          \`\`\`yaml
           # AI-OPTIMIZED YAML (85% fewer tokens vs verbose JSON)
           # Ref: https://betterprogramming.pub/yaml-vs-json-which-is-more-efficient-for-language-models-5bc11dd0f6df
           
@@ -641,7 +641,7 @@ jobs:
                 - graf
           
           concl: ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && 'prod_ready' || 'review_req' }}
-          ```
+          \`\`\`
           
           ## 📊 Human Summary
           
@@ -650,7 +650,7 @@ jobs:
           **Suites:** ⚡${{ needs.fast-validation.result == 'success' && '✅' || '❌' }}(1,5m) 💨${{ needs.smoke-tests.result == 'success' && '✅' || '❌' }}(5,10m) 🧪${{ needs.essential-tests.result == 'success' && '✅' || '❌' }}(2,12m) 🎯${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }}(1,12m) 🌐${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }}(1,10m) 🏆${{ needs.master-e2e.result == 'success' && '✅' || '❌' }}(1,15m)  
           **Result:** ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && '✅ PROD_READY' || '❌ REVIEW_REQ' }}
           
-          [Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | `${{ github.sha }}` | `${{ github.ref_name }}` | #${{ github.run_number }}
+          [Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | \`${{ github.sha }}\` | \`${{ github.ref_name }}\` | #${{ github.run_number }}
           
           ---
           *CTRF v3.0 | YAML AI-Opt (85% token ↓) | [Study](https://betterprogramming.pub/yaml-vs-json-which-is-more-efficient-for-language-models-5bc11dd0f6df)*
