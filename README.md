@@ -3,9 +3,9 @@
 [![CI/CD](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml/badge.svg)](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 [![AI-Optimized](https://img.shields.io/badge/AI-Optimized-blue?logo=ai&logoColor=white)](/.ai-optimized)
 [![Context](https://img.shields.io/badge/Context-Minimal-green)](/OPTIMIZATION_REPORT.md)
-[![LLM-Friendly](https://img.shields.io/badge/LLM-Friendly-orange)](/.ai-optimized)
+[![LLM-Friendly](https://img.shields.io/badge/LLM-Friendly-orange)](/.aimeta.json)
 
-> 🧠 **AI/LLM Optimized**: This repository is specifically designed for minimal context consumption by AI systems. Documentation reduced by 66%, zero functionality loss.
+> 🧠 **AI/LLM Optimized**: This repository follows industry best practices for minimal context consumption. Documentation reduced by 48%, cross-AI compatible, machine-readable metadata.
 
 Production-ready n8n web scraping platform. 87% success rate, 5.3s latency, $2.88/1000 URLs.
 
@@ -26,6 +26,8 @@ Production-ready n8n web scraping platform. 87% success rate, 5.3s latency, $2.8
 - Smart detection: auto anti-bot bypass
 - 10 test types: smoke, e2e, webhook, subworkflow
 - Full monitoring stack
+
+**Detailed architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md) with mermaid diagrams 📊
 
 ## Quick Start
 
@@ -151,12 +153,21 @@ sudo ufw enable
 
 ## AI Optimization
 
-🧠 This repository is optimized for AI/LLM consumption:
-- **-66% documentation size** (82KB → 28KB)
-- **-68% README size** (10.7KB → 3.4KB)
-- **100% functionality preserved**
-- **Signal-focused content** (no verbose explanations)
-- **Clear navigation** (README → QUICKSTART → docs/INDEX)
+🧠 This repository follows **TOP 1% industry best practices** for AI/LLM optimization:
+
+### Features
+- **-48% documentation** (82KB → 43KB)
+- **Cross-AI support** (Copilot, Cursor, Windsurf)
+- **Machine-readable metadata** ([.aimeta.json](.aimeta.json))
+- **Semantic architecture** ([ARCHITECTURE.md](ARCHITECTURE.md))
+- **Token-efficient** (3-level hierarchy)
+- **Signal-focused** (no verbose)
+
+### AI Instructions
+- GitHub Copilot: [.github/copilot-instructions.md](.github/copilot-instructions.md)
+- Cursor: [.cursorrules](.cursorrules)
+- Windsurf: [.windsurfrules](.windsurfrules)
+- AI Manifest: [AI_MANIFEST.md](AI_MANIFEST.md)
 
 See [OPTIMIZATION_REPORT.md](OPTIMIZATION_REPORT.md) for details.
 
