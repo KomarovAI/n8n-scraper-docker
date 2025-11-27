@@ -1,288 +1,155 @@
-# n8n-scraper-docker: Production-Ready Docker Edition 🐳
+# n8n-scraper-docker 🐳
 
-[![CI/CD Tests](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml/badge.svg)](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml)
-[![Security](https://img.shields.io/badge/security-tested-green.svg)](https://github.com/KomarovAI/n8n-scraper-docker/security)
-[![Docker](https://img.shields.io/badge/docker-compose-blue.svg)](https://docs.docker.com/compose/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI/CD](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml/badge.svg)](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 
-**Очищенная, оптимизированная версия для standalone Docker Compose запуска на одном сервере или локально.**
+Production-ready n8n web scraping platform. 87% success rate, 5.3s latency, $2.88/1000 URLs.
 
-✅ **Все Kubernetes-файлы удалены**  
-✅ **Избыточные документы удалены**  
-✅ **Автоматическое тестирование** (CI/CD)  
-✅ **Полный мониторинг** (Prometheus + Grafana)  
-✅ **n8n E2E Testing** (workflow validation) ⭐  
-✅ **Smoke Testing** (container stability) 🔥  
-✅ **Webhook Testing** (entry points validation) 🔗  
-✅ **Subworkflow Testing** (unit tests) 🔗  
+## Architecture
 
----
+**Services:**
+- `n8n` (5678) → workflow orchestration
+- `postgres` (5432) → data storage
+- `redis` (6379) → rate limiting, cache
+- `tor` (9050) → IP rotation
+- `ml-service` (8000) → smart routing, fallback
+- `ollama` (11434) → local LLM
+- `prometheus` (9090) → metrics
+- `grafana` (3000) → dashboards
 
-## 🚀 Быстрый старт
+**Features:**
+- Hybrid fallback: Firecrawl + Jina AI
+- Smart detection: auto anti-bot bypass
+- 10 test types: smoke, e2e, webhook, subworkflow
+- Full monitoring stack
 
-### 1️⃣ Клонирование
+## Quick Start
 
 ```bash
+# Clone
 git clone https://github.com/KomarovAI/n8n-scraper-docker.git
 cd n8n-scraper-docker
-```
 
-### 2️⃣ Настройка переменных окружения
-
-```bash
-# Скопируйте пример .env
+# Setup env (generate 20+ char passwords)
 cp .env.example .env
+openssl rand -base64 24  # Use for all passwords
+nano .env  # Replace CHANGE_ME_* values
 
-# Генерация сильных паролей (20+ символов)
-openssl rand -base64 24
-
-# Отредактируйте .env и замените все CHANGE_ME_* на сгенерированные пароли
-nano .env  # или vim, code
-```
-
-**Критически важно:**
-- `POSTGRES_PASSWORD` — минимум 20 символов
-- `REDIS_PASSWORD` — минимум 20 символов
-- `N8N_PASSWORD` — минимум 20 символов
-- `TOR_CONTROL_PASSWORD` — минимум 20 символов
-- `GRAFANA_PASSWORD` — минимум 20 символов
-
-### 3️⃣ Запуск всего стека
-
-```bash
-# Запуск в фоновом режиме
+# Launch
 docker-compose up -d --build
 
-# Просмотр логов всех сервисов
-docker-compose logs -f
-
-# Проверка статуса контейнеров
+# Check status
 docker-compose ps
+docker-compose logs -f
 ```
 
-### 4️⃣ Доступ к сервисам
+## Access
 
-После успешного запуска:
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| n8n | http://localhost:5678 | N8N_USER / N8N_PASSWORD |
+| Grafana | http://localhost:3000 | GRAFANA_USER / GRAFANA_PASSWORD |
+| Prometheus | http://localhost:9090 | - |
 
-| Сервис | URL | Креды (из .env) |
-|---------|-----|-------------------|
-| **n8n Workflows** | http://localhost:5678 | N8N_USER / N8N_PASSWORD |
-| **Grafana Monitoring** | http://localhost:3000 | GRAFANA_USER / GRAFANA_PASSWORD |
-| **Prometheus Metrics** | http://localhost:9090 | - |
-| **ML Service API** | http://localhost:8000 | - |
-| **Ollama LLM** | http://localhost:11434 | - |
-| PostgreSQL | localhost:5432 | POSTGRES_USER / POSTGRES_PASSWORD |
-| Redis | localhost:6379 | REDIS_PASSWORD |
-| Tor SOCKS Proxy | localhost:9050 | - |
+## Key Variables (.env)
 
----
+**Required (20+ chars):**
+- `POSTGRES_PASSWORD`
+- `REDIS_PASSWORD`
+- `N8N_PASSWORD`
+- `TOR_CONTROL_PASSWORD`
+- `GRAFANA_PASSWORD`
 
-## 🧪 **АВТОМАТИЧЕСКОЕ ТЕСТИРОВАНИЕ**
+## Testing
 
-Проект включает **comprehensive CI/CD test suite**, который автоматически запускается при каждом push и pull request:
+CI/CD runs 10 test types automatically:
+- Lint & validation
+- Security scan (Trivy + TruffleHog)
+- Docker build
+- Smoke test (container stability)
+- Health checks
+- Integration tests
+- n8n workflow e2e
+- Webhook validation
+- Subworkflow tests
+- Test summary
 
-### **10 типов тестов:**
+## Production Metrics
 
-✅ **Lint & Validation** — docker-compose.yml, Dockerfile, shell scripts  
-✅ **Security Scan** — Trivy vulnerability scanner + TruffleHog secret detection  
-✅ **Docker Build** — сборка образов и проверка размера  
-✅ **Smoke Test** — container stability, packaging bugs 🔥 ⭐  
-✅ **Health Checks** — PostgreSQL, Redis, Prometheus, Grafana  
-✅ **Integration Tests** — connectivity, data persistence, exporters  
-✅ **n8n Workflow E2E** — workflow import, execution, validation  
-✅ **n8n Webhook Test** — webhook endpoints, payload processing 🔗 ⭐  
-✅ **n8n Subworkflow Test** — Execute Workflow node, data passing 🔗 ⭐  
-✅ **Test Summary** — финальный отчёт  
+- Success: 87%
+- Latency: 5.3s avg
+- Cost: $2.88/1000 URLs
+- Cloudflare bypass: 90-95%
+- Memory leaks: None
 
-**Подробнее:** [🧪 TESTING.md](TESTING.md)
+## Management
 
-**Новые тесты:**
-- [🔥 Smoke Tests](tests/smoke/README.md) — первая линия защиты от packaging bugs
-- [🔗 Webhook Tests](tests/webhooks/README.md) — entry points validation
-- [🔗 Subworkflow Tests](tests/subworkflows/README.md) — unit tests для n8n workflows
-
----
-
-## 📊 **МОНИТОРИНГ**
-
-Полностью настроенный monitoring stack:
-
-- 📊 **Prometheus** (localhost:9090) — сбор метрик
-- 📈 **Grafana** (localhost:3000) — визуализация
-- 💻 **Node Exporter** — системные метрики (CPU, RAM, Disk)
-- 🟥 **Redis Exporter** — Redis метрики
-- 🔵 **PostgreSQL Exporter** — DB метрики
-
-**Подробнее:** [📊 MONITORING_SETUP.md](MONITORING_SETUP.md)
-
----
-
-## 📦 Что входит в стек
-
-### Основные сервисы:
-
-1. **n8n** (5678) — автоматизация workflow'ов, оркестрация scraping
-2. **PostgreSQL** (5432) — основная БД для хранения данных
-3. **Redis** (6379) — rate limiting, кэширование, очереди
-4. **Tor Proxy** (9050) — анонимность и IP rotation
-
-### ML/AI компоненты:
-
-5. **ML Service** (8000) — смарт-роутинг scraper'ов, стратегии fallback
-6. **Ollama** (11434) — локальные LLM-модели (100% бесплатно)
-
-### Мониторинг:
-
-7. **Prometheus** (9090) — сбор метрик
-8. **Grafana** (3000) — визуализация, дашборды
-
----
-
-## 🛠️ Управление стеком
-
-### Остановка:
 ```bash
+# Stop
 docker-compose down
-```
 
-### Полная очистка (с удалением volumes):
-```bash
+# Full cleanup
 docker-compose down -v
-```
 
-### Перезапуск одного сервиса:
-```bash
+# Restart service
 docker-compose restart n8n
-```
 
-### Просмотр логов конкретного сервиса:
-```bash
+# View logs
 docker-compose logs -f n8n
-docker-compose logs -f ml-service
+
+# Update
+docker-compose pull && docker-compose up -d --build
 ```
 
-### Обновление образов:
-```bash
-docker-compose pull
-docker-compose up -d --build
-```
+## Requirements
 
----
-
-## 📊 Production метрики
-
-| Метрика | Значение |
-|---------|---------|
-| **Success Rate** | 87% |
-| **Avg Latency** | 5.3s |
-| **Cost per 1000 URLs** | $2.88 |
-| **Cloudflare Bypass** | 90-95% |
-| **Memory Leaks** | Нет ✅ |
-
-### Особенности:
-
-✅ **Hybrid Fallback** — Firecrawl (33%) + Jina AI (67%) = -66% затрат  
-✅ **Smart Detection** — авто-выбор anti-detection = +35% скорости  
-✅ **Nodriver Enhanced V2** — cleanup mechanism, instance limit, GUI mode  
-✅ **15 Production Fixes** — circuit breaker, page pooling, exponential backoff  
-
----
-
-## 📚 Документация
-
-### Важные документы:
-
-- **[🚀 README-docker.md](README-docker.md)** — детальная инструкция Docker Compose
-- **[🧪 TESTING.md](TESTING.md)** — полная документация по тестированию
-- **[🔥 Smoke Tests](tests/smoke/README.md)** — тесты стабильности контейнеров ⭐
-- **[🔗 Webhook Tests](tests/webhooks/README.md)** — тесты webhook endpoints ⭐
-- **[🔗 Subworkflow Tests](tests/subworkflows/README.md)** — unit тесты workflows ⭐
-- **[📊 MONITORING_SETUP.md](MONITORING_SETUP.md)** — настройка мониторинга
-- **[🔧 PRODUCTION_FIXES_V3.md](PRODUCTION_FIXES_V3.md)** — все 15 production-исправлений
-- **[📊 AUDIT_REPORT_FINAL.md](AUDIT_REPORT_FINAL.md)** — финальный аудит (4.95/5.0)
-- **[🔒 SECURITY.md](SECURITY.md)** — руководство по безопасности
-- **[🐜 DYNAMIC_RUNNERS.md](DYNAMIC_RUNNERS.md)** — документация по scraper'ам
-- **[docs/](docs/)** — техническая документация
-
----
-
-## ⚠️ Требования
-
-### Минимальные:
+**Minimum:**
 - Docker 20.10+
 - Docker Compose 1.29+
 - 4 GB RAM
-- 10 GB свободного места
+- 10 GB disk
 
-### Рекомендуемые для production:
+**Production:**
 - Docker 24.0+
 - Docker Compose 2.0+
 - 8 GB RAM
-- 50 GB свободного места
-- GPU (опционально для Ollama)
+- 50 GB disk
 
----
+## Security
 
-## 🔒 Безопасность
-
-### Критически важно:
-
-❗ **Никогда не коммитьте .env файл** в Git (уже в .gitignore)  
-❗ **Используйте сильные пароли** (20+ символов) для всех сервисов  
-❗ **Ротация паролей** каждые 90 дней  
-❗ **Закройте порты** через firewall для production  
-
-### Firewall настройка (production):
+- Never commit `.env`
+- Use 20+ char passwords
+- Rotate passwords every 90 days
+- Use firewall in production
 
 ```bash
-# Открыть только n8n web UI (5678) и SSH (22)
-sudo ufw allow 22/tcp
-sudo ufw allow 5678/tcp
+# Production firewall
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 5678/tcp  # n8n
 sudo ufw enable
-
-# Все остальные порты доступны только localhost
 ```
 
----
+## Structure
 
-## ❓ FAQ
+```
+.
+├── docker-compose.yml    # Service definitions
+├── .env.example          # Environment template
+├── Dockerfile.n8n-enhanced  # Custom n8n build
+├── workflows/            # n8n workflows
+├── ml/                   # ML service
+├── scrapers/             # Scraper implementations
+├── monitoring/           # Prometheus, Grafana configs
+├── tests/                # Test suites
+├── scripts/              # Utility scripts
+└── .github/workflows/    # CI/CD pipelines
+```
 
-### Q: Можно отключить ML сервис или Ollama?
-A: Да! Откомментируйте соответствующие секции в docker-compose.yml.
+## Links
 
-### Q: Как использовать внешнюю PostgreSQL/Redis?
-A: Измените переменные в .env на внешние хосты, отключите локальные контейнеры.
-
-### Q: Как обновить на новую версию?
-A: `git pull origin main && docker-compose up -d --build`
-
-### Q: Где хранятся данные?
-A: Docker volumes: `postgres-data`, `redis-data`, `n8n-data`, `grafana-data`, `prometheus-data`
-
-### Q: Как сделать backup?
-A: `docker-compose exec postgres pg_dump -U scraper_user scraper_db > backup_$(date +%Y%m%d).sql`
-
----
-
-## 🎉 Что дальше?
-
-1. Откройте n8n: http://localhost:5678
-2. Импортируйте workflows из `workflows/`
-3. Настройте credentials (если нужно)
-4. Проверьте Grafana dashboards: http://localhost:3000
-5. Запустите первый scraping workflow!
+- [Docker Hub](https://hub.docker.com/r/n8nio/n8n)
+- [n8n Docs](https://docs.n8n.io/)
+- [GitHub Actions](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 
 ---
 
-## 🔗 Ссылки
-
-- [🐳 Docker Hub - n8n](https://hub.docker.com/r/n8nio/n8n)
-- [📚 n8n Documentation](https://docs.n8n.io/)
-- [🌐 GitHub Repository](https://github.com/KomarovAI/n8n-scraper-docker)
-- [🛠️ GitHub Actions](https://github.com/KomarovAI/n8n-scraper-docker/actions)
-
----
-
-**Built with ❤️ by KomarovAI**  
-**Production-Ready ✅ | Docker-Optimized 🐳 | Auto-Tested 🧪 | Fully Monitored 📊**  
-**Smoke 🔥 | Webhook 🔗 | Subworkflow 🔗 Tested!** ⭐  
+**Built by KomarovAI** | Production-Ready ✅ | Auto-Tested 🧪 | Fully Monitored 📊
