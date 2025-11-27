@@ -25,7 +25,7 @@ test-summary (1 runner)
 Общее время: ~18 мин (последовательно)
 ```
 
-### **СТАЛО (12 jobs + matrix):**
+### **СТАЛО (13 jobs + matrix):**
 ```
 ┌──────────────────────────────────────────────────────┐
 │  🚀 Волна 1 (ПАРАЛЛЕЛЬНО - 8 runners)                    │
@@ -48,20 +48,21 @@ test-summary (1 runner)
 │  10. integration-test (4 min)                         │
 │  11. test-configurations [minimal] (2 min)            │
 │  12. test-configurations [monitoring] (3 min)         │
+│  13. n8n-e2e-test (3 min) ⭐ НОВЫЙ!                  │
 └──────────────────────────────────────────────────────┘
          ↓ Завершаются через 4 мин (max)
          ↓
 ┌──────────────────────────────────────────────────────┐
 │  🚀 Волна 3 (1 runner)                                   │
 ├──────────────────────────────────────────────────────┤
-│  13. test-summary (1 min)                             │
+│  14. test-summary (1 min)                             │
 └──────────────────────────────────────────────────────┘
 
 **Общее время: ~9 минут** (было 18 мин) = **-50% времени!** 🚀
 
 ---
 
-## 📊 **12 ТИПОВ ТЕСТОВ**
+## 📊 **13 ТИПОВ ТЕСТОВ**
 
 ### **Волна 1: Fast Checks (8 runners параллельно)**
 
@@ -88,6 +89,7 @@ test-summary (1 runner)
 | 10 | **integration-test** | 4 min | Connectivity, persistence, exporters |
 | 11 | **test-config [minimal]** | 2 min | Минимальная конфигурация (postgres+redis) |
 | 12 | **test-config [monitoring]** | 3 min | Конфигурация с мониторингом |
+| 13 | **n8n-e2e-test** ⭐ | 3 min | n8n workflow import/execute/validate |
 
 **Max время волны 2:** 4 мин (integration-test)
 
@@ -97,7 +99,27 @@ test-summary (1 runner)
 
 | # | Job | Время | Что делает |
 |---|-----|--------|-------------|
-| 13 | **test-summary** | 1 min | Финальный отчёт, проверка всех результатов |
+| 14 | **test-summary** | 1 min | Финальный отчёт, проверка всех результатов |
+
+---
+
+## 🎉 **НОВЫЙ: n8n Workflow E2E Test**
+
+### **Что проверяет:**
+
+✅ **n8n Authentication** — логин через REST API  
+✅ **Workflow Import** — импорт test-workflow.json  
+✅ **Workflow Execution** — выполнение workflow  
+✅ **Status Validation** — проверка finished = true  
+✅ **Output Validation** — проверка выходных данных  
+✅ **Cleanup** — удаление тестового workflow  
+
+**Файлы:**
+- `tests/n8n/test-workflow.json` — тестовый workflow
+- `tests/n8n/e2e-test.sh` — bash script для тестирования
+- `tests/n8n/README.md` — полная документация
+
+**Подробнее:** [tests/n8n/README.md](tests/n8n/README.md)
 
 ---
 
@@ -105,13 +127,14 @@ test-summary (1 runner)
 
 | Параметр | ДО оптимизации | ПОСЛЕ оптимизации |
 |----------|-------------------|--------------------|
-| **Кол-во jobs** | 6 | **12** (+6) |
+| **Кол-во jobs** | 6 | **13** (+7) |
 | **Max runners одновременно** | 1 | **8** (+7) |
 | **Общее время** | 18 мин | **9 мин** (-50%) |
 | **Параллелизм** | Последовательно | **3 волны** |
 | **Docker cache** | Нет | **Есть** (GHA cache) |
 | **Matrix strategy** | Нет | **Есть** (2 configs) |
 | **Retry logic** | Нет | **Есть** (health checks) |
+| **n8n E2E testing** | Нет | **Есть** ⭐ |
 
 ---
 
@@ -180,127 +203,24 @@ done
 
 **Результат:** Меньше false negatives
 
-### **5. Разделение тяжёлых jobs** ✅
+### **5. n8n E2E Testing** ✅ ⭐ **НОВОЕ!**
 
-```yaml
-# БЫЛО: 1 большой job
-security-scan:
-  - Trivy scan (2 min)
-  - Secret scan (2 min)
-  - Upload results (1 min)
-  Время: 5 мин
-
-# СТАЛО: 2 независимых jobs
-trivy-scan: 2 мин
-secret-scan: 2 мин
-Время: 2 мин (параллельно!)
-```
-
----
-
-## 🛠️ **ЧТО ПРОВЕРЯЕТ КАЖДЫЙ JOB**
-
-### **1. validate-compose** (1 мин)
 ```bash
-✅ docker-compose.yml syntax
-✅ Environment variables validation
-✅ .env.example exists
-✅ Volumes configuration
-✅ Networks configuration
+# Полный цикл тестирования n8n:
+1. Authentication через API
+2. Import workflow (test-workflow.json)
+3. Execute workflow
+4. Wait for completion
+5. Validate output data
+6. Cleanup (delete workflow)
 ```
 
-### **2. lint-dockerfiles** (1 мин)
-```bash
-✅ Hadolint best practices
-✅ Layer optimization
-✅ Security issues
-✅ Deprecated instructions
-```
+**Результат:**
+- Гарантирует работоспособность n8n core
+- Проверяет HTTP Request и Code ноды
+- Валидирует workflow execution engine
 
-### **3. check-shell-scripts** (1 мин)
-```bash
-✅ Bash syntax errors
-✅ Quoting issues
-✅ Variable usage
-✅ Command availability
-```
-
-### **4. trivy-scan** (2 мин)
-```bash
-✅ CVE vulnerabilities
-✅ npm/pip dependencies
-✅ OS packages
-✅ GitHub Security upload
-```
-
-### **5. secret-scan** (2 мин)
-```bash
-✅ API keys detection
-✅ Passwords in code
-✅ Tokens in commits
-✅ Private keys
-```
-
-### **6. build-n8n** (4 мин, 30s с cache)
-```bash
-✅ Image builds successfully
-✅ All dependencies installed
-✅ Image size check
-✅ Layer inspection
-✅ Build cache (GHA)
-```
-
-### **7. build-ml-service** (3 мин)
-```bash
-✅ Checks if Dockerfile exists
-✅ Builds ML Service image
-✅ Python dependencies
-✅ Build cache (GHA)
-```
-
-### **8. test-tor** (2 мин)
-```bash
-✅ Tor starts successfully
-✅ SOCKS proxy (9050) accessible
-✅ Tor circuit established
-✅ check.torproject.org validation
-```
-
-### **9. health-check** (3 мин)
-```bash
-✅ PostgreSQL pg_isready
-✅ Redis PING
-✅ Prometheus /-/healthy
-✅ Grafana /api/health
-✅ Node Exporter /metrics
-✅ Redis Exporter /metrics
-✅ PostgreSQL Exporter /metrics
-```
-
-### **10. integration-test** (4 мин)
-```bash
-✅ PostgreSQL query execution
-✅ Redis read/write operations
-✅ Data persistence (restart test)
-✅ Prometheus targets UP
-✅ All exporters responding
-✅ Grafana API authentication
-```
-
-### **11-12. test-configurations** (2-3 мин)
-```bash
-✅ Minimal config (postgres + redis)
-✅ Monitoring config (+ prometheus + grafana + exporters)
-✅ Services start correctly
-✅ No port conflicts
-```
-
-### **13. test-summary** (1 мин)
-```bash
-✅ Aggregates all results
-✅ Final PASS/FAIL decision
-✅ Deployment readiness check
-```
+**Подробнее:** [tests/n8n/README.md](tests/n8n/README.md)
 
 ---
 
@@ -324,6 +244,7 @@ secret-scan: 2 мин
       ├── integration-test
       ├── test-config [minimal]
       ├── test-config [monitoring]
+      └── n8n-e2e-test ⭐
       │
 8:00  ✅ Волна 2 завершена
       │
@@ -346,7 +267,7 @@ secret-scan: 2 мин
 | Волна | Runners | % от лимита |
 |-------|---------|-------------|
 | **Волна 1** | 8 | 40% |
-| **Волна 2** | 4-5 | 20-25% |
+| **Волна 2** | 5 | 25% |
 | **Волна 3** | 1 | 5% |
 
 **Вывод:** Мы используем **40% доступных runners** = оптимально!
@@ -401,7 +322,18 @@ echo "✅ Health checks passed"
 docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "SELECT 1;"
 echo "✅ Integration tests passed"
 
-# 7. Cleanup
+# 7. n8n E2E test
+docker compose up -d n8n
+sleep 60
+chmod +x tests/n8n/e2e-test.sh
+export N8N_URL="http://localhost:5678"
+export N8N_USER="admin"
+export N8N_PASSWORD="your_password"
+export WORKFLOW_FILE="tests/n8n/test-workflow.json"
+./tests/n8n/e2e-test.sh
+echo "✅ n8n E2E test passed"
+
+# 8. Cleanup
 docker compose down -v
 echo "✅ All tests completed!"
 ```
@@ -488,6 +420,11 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 ❌ Integration test failed
    → Нет связи между сервисами
    → Проверьте depends_on в docker-compose.yml
+
+❌ n8n E2E test failed
+   → n8n не запустился
+   → docker compose logs n8n
+   → Проверьте N8N_PASSWORD в .env
 ```
 
 ---
@@ -508,13 +445,14 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 
 | Метрика | Значение |
 |---------|----------|
-| **Total jobs** | 12 (+1 summary) |
+| **Total jobs** | 13 (+1 summary) |
 | **Max параллельные runners** | 8 |
 | **Общее время** | ~9 мин (-50%) |
 | **Cache hit rate** | 80%+ (после 1го build) |
 | **Docker cache** | GHA (GitHub Actions) |
 | **Matrix configs** | 2 (minimal, monitoring) |
 | **Retry logic** | Да (30 попыток health checks) |
+| **n8n E2E testing** | Да ⭐ |
 
 ---
 
@@ -539,8 +477,9 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 ✅ Service connectivity
 ✅ Data persistence
 ✅ Multiple configurations
+✅ n8n Workflow E2E ⭐
 
-**Coverage: 18 типов проверок!**
+**Coverage: 19 типов проверок!**
 ```
 
 ---
@@ -550,10 +489,11 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 - [🔄 GitHub Actions](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 - [🛡️ Security Tab](https://github.com/KomarovAI/n8n-scraper-docker/security)
 - [📊 Workflow File](.github/workflows/ci-test.yml)
+- [🧪 n8n E2E Tests](tests/n8n/README.md) ⭐
 
 ---
 
-**Статус:** ✅ **OPTIMIZED FOR MAXIMUM PARALLELISM**  
+**Статус:** ✅ **OPTIMIZED FOR MAXIMUM PARALLELISM + n8n E2E**  
 **Runners:** 8 одновременно (40% от лимита)  
 **Время:** ~9 мин (-50% от предыдущей версии)  
-**Coverage:** 18 типов проверок  
+**Coverage:** 19 типов проверок (+n8n E2E!) ⭐  
