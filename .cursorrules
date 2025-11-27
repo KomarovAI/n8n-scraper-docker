@@ -1,0 +1,55 @@
+# Cursor AI Rules
+
+# This repository uses unified AI instructions.
+# All AI assistants (Cursor, Windsurf, Copilot, etc.) should follow:
+# 
+# Primary: .github/copilot-instructions.md
+# Manifest: AI_MANIFEST.md
+# Optimization: .ai-optimized
+
+## Quick Context
+
+**Type:** Production n8n scraping platform (8 microservices)  
+**Status:** AI-optimized (minimal context, token-efficient)  
+**Metrics:** 87% success, 5.3s latency, $2.88/1000 URLs  
+
+## Core Principles
+
+1. **Minimal documentation** - Signal-focused, no verbose
+2. **Token-efficient code** - Self-documenting, clear names
+3. **Single source of truth** - No duplication
+4. **Follow existing patterns** - Consistency over innovation
+5. **AI optimization first** - Every change maintains minimal context
+
+## For Detailed Instructions
+
+See `.github/copilot-instructions.md` for:
+- Coding standards
+- Architecture guidelines
+- Testing strategy
+- Security guidelines
+- Deployment checklist
+
+## Quick Commands
+
+```bash
+# Start
+docker-compose up -d --build
+
+# Test
+.github/workflows/ci-test.yml
+
+# Logs
+docker-compose logs -f [service]
+```
+
+## Navigation
+
+- Architecture: `README.md`
+- Quick start: `QUICKSTART.md`
+- AI guide: `AI_MANIFEST.md`
+- Tech docs: `docs/INDEX.md`
+
+---
+
+**AI-Optimized Repository** 🧠 | Follow unified instructions above
