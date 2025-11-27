@@ -11,6 +11,7 @@
 ✅ **Избыточные документы удалены**  
 ✅ **Автоматическое тестирование** (CI/CD)  
 ✅ **Полный мониторинг** (Prometheus + Grafana)  
+✅ **n8n E2E Testing** (workflow validation) ⭐  
 
 ---
 
@@ -77,16 +78,17 @@ docker-compose ps
 
 Проект включает **comprehensive CI/CD test suite**, который автоматически запускается при каждом push и pull request:
 
-### **6 типов тестов:**
+### **7 типов тестов:**
 
 ✅ **Lint & Validation** — docker-compose.yml, Dockerfile, shell scripts  
 ✅ **Security Scan** — Trivy vulnerability scanner + TruffleHog secret detection  
 ✅ **Docker Build** — сборка образов и проверка размера  
 ✅ **Health Checks** — PostgreSQL, Redis, Prometheus, Grafana  
 ✅ **Integration Tests** — connectivity, data persistence, exporters  
+✅ **n8n Workflow E2E** — workflow import, execution, validation ⭐  
 ✅ **Test Summary** — финальный отчёт  
 
-**Подробнее:** [🧪 TESTING.md](TESTING.md)
+**Подробнее:** [🧪 TESTING.md](TESTING.md) | [n8n E2E Tests](tests/n8n/README.md)
 
 ---
 
@@ -181,6 +183,7 @@ docker-compose up -d --build
 
 - **[🚀 README-docker.md](README-docker.md)** — детальная инструкция Docker Compose
 - **[🧪 TESTING.md](TESTING.md)** — полная документация по тестированию
+- **[⭐ n8n E2E Tests](tests/n8n/README.md)** — E2E тестирование workflows
 - **[📊 MONITORING_SETUP.md](MONITORING_SETUP.md)** — настройка мониторинга
 - **[🔧 PRODUCTION_FIXES_V3.md](PRODUCTION_FIXES_V3.md)** — все 15 production-исправлений
 - **[📊 AUDIT_REPORT_FINAL.md](AUDIT_REPORT_FINAL.md)** — финальный аудит (4.95/5.0)
