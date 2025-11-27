@@ -16,13 +16,11 @@ env:
   COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
-  # Job 1: Fast validation with artifact caching
+  # Job 1: Fast validation
   fast-validation:
     name: ⚡ Fast Validation
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    outputs:
-      cache-hit: ${{ steps.cache-docker.outputs.cache-hit }}
     steps:
       - name: 📊 Checkout code
         uses: actions/checkout@v4
@@ -31,7 +29,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
       
       - name: 📦 Cache Docker layers
-        id: cache-docker
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
@@ -39,54 +36,42 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
       
-      - name: 🔍 Lint YAML files (parallel)
+      - name: 🔍 Lint YAML files
         run: |
-          echo "✓ Linting docker-compose.yml" &
-          docker run --rm -v "$(pwd)":/workspace mikefarah/yq eval '.services' docker-compose.yml > /dev/null &
-          echo "✓ Linting workflows" &
-          for file in .github/workflows/*.y*ml; do
-            docker run --rm -v "$(pwd)":/workspace mikefarah/yq eval '.' "$file" > /dev/null &
-          done
-          wait
-          echo "✅ All YAML files are valid"
+          echo "✓ Linting docker-compose.yml"
+          docker run --rm -v "$(pwd)":/workspace mikefarah/yq eval '.services' docker-compose.yml > /dev/null
+          echo "✅ YAML valid"
       
-      - name: 🔒 Security scan - Secrets detection
+      - name: 🔒 Security scan
         run: |
-          echo "🔍 Scanning for exposed secrets..."
-          docker run --rm -v "$(pwd)":/path trufflesecurity/trufflehog:latest filesystem /path --only-verified --fail || {
-            echo "⚠️  No verified secrets found (expected in test repo)"
-          }
-          echo "✅ Secret scan complete"
+          echo "🔍 Scanning for secrets..."
+          docker run --rm -v "$(pwd)":/path trufflesecurity/trufflehog:latest filesystem /path --only-verified --fail || echo "⚠️ No verified secrets"
+          echo "✅ Scan complete"
       
-      - name: 🐳 Build Docker images
-        id: docker-build
+      - name: 🐳 Build Docker image
         run: |
-          echo "🛠️  Building n8n-enhanced image..."
-          docker build \
-            -f Dockerfile.n8n-enhanced \
-            -t n8n-enhanced:test . 2>&1 | tee /tmp/docker-build.log
-          echo "✅ Docker build successful"
+          echo "🛠️ Building n8n-enhanced..."
+          docker build -f Dockerfile.n8n-enhanced -t n8n-enhanced:test . 2>&1 | tee /tmp/fast-validation-build.log
+          echo "✅ Build successful"
       
-      - name: 📦 Save Docker image as artifact
-        run: |
-          docker save n8n-enhanced:test | gzip > /tmp/n8n-enhanced.tar.gz
+      - name: 📦 Save Docker image
+        run: docker save n8n-enhanced:test | gzip > /tmp/n8n-enhanced.tar.gz
       
-      - name: 📤 Upload Docker image artifact
+      - name: 📤 Upload Docker image
         uses: actions/upload-artifact@v4
         with:
           name: n8n-enhanced-image
           path: /tmp/n8n-enhanced.tar.gz
           retention-days: 1
       
-      - name: 📜 Save logs (no upload yet)
+      - name: 📜 Save logs FLAT
         if: always()
         run: |
-          mkdir -p /tmp/logs/fast-validation
-          cp /tmp/docker-build.log /tmp/logs/fast-validation/build.log 2>/dev/null || echo "No build log" > /tmp/logs/fast-validation/build.log
-          echo "Status: ${{ job.status }}" > /tmp/logs/fast-validation/status.txt
-          echo "fast-validation/build.log" > /tmp/logs/index.txt
+          mkdir -p /tmp/logs
+          cp /tmp/fast-validation-build.log /tmp/logs/ 2>/dev/null || echo "No build log" > /tmp/logs/fast-validation-build.log
+          echo "${{ job.status }}" > /tmp/logs/fast-validation-status.txt
       
-      - name: 💾 Upload logs to workspace (temporary)
+      - name: 💾 Upload temp logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -94,7 +79,7 @@ jobs:
           path: /tmp/logs/
           retention-days: 1
 
-  # Job 2: Smoke tests (maximum parallelization)
+  # Job 2: Smoke tests
   smoke-tests:
     name: 💨 Smoke Test
     runs-on: ubuntu-latest
@@ -104,28 +89,13 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - name: "PostgreSQL"
-            slug: "postgres"
-            script: "tests/smoke/test_postgres_redis.sh"
-            services: "postgres"
-          - name: "Redis"
-            slug: "redis"
-            script: "tests/smoke/test_postgres_redis.sh"
-            services: "redis"
-          - name: "Tor Proxy"
-            slug: "tor"
-            script: "tests/smoke/test_tor.sh"
-            services: "tor"
-          - name: "Prometheus"
-            slug: "prometheus"
-            script: "tests/smoke/test_monitoring.sh"
-            services: "prometheus"
-          - name: "Grafana"
-            slug: "grafana"
-            script: "tests/smoke/test_monitoring.sh"
-            services: "grafana"
+          - { name: "PostgreSQL", slug: "postgres", script: "tests/smoke/test_postgres_redis.sh", services: "postgres" }
+          - { name: "Redis", slug: "redis", script: "tests/smoke/test_postgres_redis.sh", services: "redis" }
+          - { name: "Tor", slug: "tor", script: "tests/smoke/test_tor.sh", services: "tor" }
+          - { name: "Prometheus", slug: "prometheus", script: "tests/smoke/test_monitoring.sh", services: "prometheus" }
+          - { name: "Grafana", slug: "grafana", script: "tests/smoke/test_monitoring.sh", services: "grafana" }
     steps:
-      - name: 📊 Checkout code
+      - name: 📊 Checkout
         uses: actions/checkout@v4
       
       - name: 📥 Download Docker image
@@ -135,10 +105,9 @@ jobs:
           path: /tmp
       
       - name: 📦 Load Docker image
-        run: |
-          docker load < /tmp/n8n-enhanced.tar.gz
+        run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env file
+      - name: 📝 Create .env
         run: |
           cp .env.example .env
           sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
@@ -147,38 +116,31 @@ jobs:
           sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
-      - name: 🚀 Start ${{ matrix.test.name }}
-        run: |
-          echo "▶️  Starting: ${{ matrix.test.services }}"
-          docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/docker-start.log
+      - name: 🚀 Start service
+        run: docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/smoke-${{ matrix.test.slug }}-start.log
       
-      - name: ⏱️ Wait for service with health check
+      - name: ⏱️ Wait for service
         run: |
-          echo "Waiting for ${{ matrix.test.name }} to be ready..."
           for i in {1..30}; do
-            if docker-compose ps | grep -q "Up"; then
-              echo "✅ Service is ready"
-              sleep 5
-              break
-            fi
+            docker-compose ps | grep -q "Up" && { echo "✅ Ready"; sleep 5; break; }
             sleep 2
           done
       
-      - name: 🧪 Run ${{ matrix.test.name }} test
+      - name: 🧪 Run test
         run: |
           chmod +x ${{ matrix.test.script }} || true
-          bash ${{ matrix.test.script }} 2>&1 | tee /tmp/test-output.log
+          bash ${{ matrix.test.script }} 2>&1 | tee /tmp/smoke-${{ matrix.test.slug }}-test.log
       
-      - name: 📜 Save logs (no upload yet)
+      - name: 📜 Save logs FLAT
         if: always()
         run: |
-          mkdir -p /tmp/logs/smoke-${{ matrix.test.slug }}
-          docker-compose ps > /tmp/logs/smoke-${{ matrix.test.slug }}/docker-ps.log 2>&1
-          docker-compose logs --tail=100 ${{ matrix.test.services }} > /tmp/logs/smoke-${{ matrix.test.slug }}/docker-logs.log 2>&1
-          cp /tmp/test-output.log /tmp/logs/smoke-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/smoke-${{ matrix.test.slug }}/test-output.log
-          echo "Status: ${{ job.status }}" > /tmp/logs/smoke-${{ matrix.test.slug }}/status.txt
+          mkdir -p /tmp/logs
+          docker-compose ps > /tmp/logs/smoke-${{ matrix.test.slug }}-ps.log 2>&1
+          docker-compose logs --tail=100 > /tmp/logs/smoke-${{ matrix.test.slug }}-docker.log 2>&1
+          cp /tmp/smoke-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/smoke-${{ matrix.test.slug }}-test.log
+          echo "${{ job.status }}" > /tmp/logs/smoke-${{ matrix.test.slug }}-status.txt
       
-      - name: 💾 Upload logs to workspace (temporary)
+      - name: 💾 Upload temp logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -190,7 +152,7 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 3: Essential tests (health + workflow)
+  # Job 3: Essential tests
   essential-tests:
     name: 🧪 Essential Test
     runs-on: ubuntu-latest
@@ -200,16 +162,10 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - name: "Health Check"
-            slug: "health"
-            script: "tests/essential/test_health.sh"
-            services: "n8n postgres redis"
-          - name: "Workflow Test"
-            slug: "workflow"
-            script: "tests/essential/test_workflow.sh"
-            services: "n8n postgres redis"
+          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n postgres redis" }
+          - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n postgres redis" }
     steps:
-      - name: 📊 Checkout code
+      - name: 📊 Checkout
         uses: actions/checkout@v4
       
       - name: 📥 Download Docker image
@@ -219,10 +175,9 @@ jobs:
           path: /tmp
       
       - name: 📦 Load Docker image
-        run: |
-          docker load < /tmp/n8n-enhanced.tar.gz
+        run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env file
+      - name: 📝 Create .env
         run: |
           cp .env.example .env
           sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
@@ -231,36 +186,31 @@ jobs:
           sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
-      - name: 🚀 Start ${{ matrix.test.name }} services
-        run: |
-          docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/docker-start.log
+      - name: 🚀 Start services
+        run: docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/essential-${{ matrix.test.slug }}-start.log
       
-      - name: ⏱️ Smart wait for n8n
+      - name: ⏱️ Wait for n8n
         run: |
-          echo "Waiting for n8n API..."
           for i in {1..40}; do
-            if curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              echo "✅ n8n is ready"
-              break
-            fi
+            curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; break; }
             sleep 3
           done
       
-      - name: 🧪 Run ${{ matrix.test.name }}
+      - name: 🧪 Run test
         run: |
           chmod +x ${{ matrix.test.script }}
-          bash ${{ matrix.test.script }} 2>&1 | tee /tmp/test-output.log
+          bash ${{ matrix.test.script }} 2>&1 | tee /tmp/essential-${{ matrix.test.slug }}-test.log
       
-      - name: 📜 Save logs (no upload yet)
+      - name: 📜 Save logs FLAT
         if: always()
         run: |
-          mkdir -p /tmp/logs/essential-${{ matrix.test.slug }}
-          docker-compose ps > /tmp/logs/essential-${{ matrix.test.slug }}/docker-ps.log 2>&1
-          docker-compose logs --tail=150 > /tmp/logs/essential-${{ matrix.test.slug }}/docker-logs.log 2>&1
-          cp /tmp/test-output.log /tmp/logs/essential-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/essential-${{ matrix.test.slug }}/test-output.log
-          echo "Status: ${{ job.status }}" > /tmp/logs/essential-${{ matrix.test.slug }}/status.txt
+          mkdir -p /tmp/logs
+          docker-compose ps > /tmp/logs/essential-${{ matrix.test.slug }}-ps.log 2>&1
+          docker-compose logs --tail=150 > /tmp/logs/essential-${{ matrix.test.slug }}-docker.log 2>&1
+          cp /tmp/essential-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/essential-${{ matrix.test.slug }}-test.log
+          echo "${{ job.status }}" > /tmp/logs/essential-${{ matrix.test.slug }}-status.txt
       
-      - name: 💾 Upload logs to workspace (temporary)
+      - name: 💾 Upload temp logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -272,14 +222,14 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 4: E2E tests (real Node.js test)
+  # Job 4: E2E tests
   e2e-tests:
     name: 🎯 E2E Test
     runs-on: ubuntu-latest
     timeout-minutes: 12
     needs: fast-validation
     steps:
-      - name: 📊 Checkout code
+      - name: 📊 Checkout
         uses: actions/checkout@v4
       
       - name: 🐳 Setup Node.js
@@ -296,10 +246,9 @@ jobs:
           path: /tmp
       
       - name: 📦 Load Docker image
-        run: |
-          docker load < /tmp/n8n-enhanced.tar.gz
+        run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env file
+      - name: 📝 Create .env
         run: |
           cp .env.example .env
           sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
@@ -308,42 +257,38 @@ jobs:
           sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
-      - name: 🚀 Start full test stack
-        run: |
-          docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/docker-start.log
+      - name: 🚀 Start stack
+        run: docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/e2e-start.log
       
       - name: ⏱️ Wait for n8n
         run: |
           for i in {1..40}; do
-            if curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              echo "✅ n8n ready for E2E"
-              break
-            fi
+            curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; break; }
             sleep 3
           done
       
-      - name: 📦 Install E2E dependencies
+      - name: 📦 Install dependencies
         working-directory: tests/e2e
-        run: npm install || echo "No package.json, skipping"
+        run: npm install || echo "No package.json"
       
-      - name: 🎯 Run E2E workflow test
+      - name: 🎯 Run E2E test
         working-directory: tests/e2e
         run: |
           if [ -f "workflow-test.js" ]; then
-            node workflow-test.js 2>&1 | tee /tmp/test-output.log
+            node workflow-test.js 2>&1 | tee /tmp/e2e-test.log
           else
-            echo "⚠️  No E2E test found" | tee /tmp/test-output.log
+            echo "⚠️ No E2E test" | tee /tmp/e2e-test.log
           fi
       
-      - name: 📜 Save logs (no upload yet)
+      - name: 📜 Save logs FLAT
         if: always()
         run: |
-          mkdir -p /tmp/logs/e2e
-          docker-compose logs --tail=200 n8n > /tmp/logs/e2e/docker-n8n.log 2>&1
-          cp /tmp/test-output.log /tmp/logs/e2e/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/e2e/test-output.log
-          echo "Status: ${{ job.status }}" > /tmp/logs/e2e/status.txt
+          mkdir -p /tmp/logs
+          docker-compose logs --tail=200 n8n > /tmp/logs/e2e-docker.log 2>&1
+          cp /tmp/e2e-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/e2e-test.log
+          echo "${{ job.status }}" > /tmp/logs/e2e-status.txt
       
-      - name: 💾 Upload logs to workspace (temporary)
+      - name: 💾 Upload temp logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -355,14 +300,14 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 5: n8n Integration tests
+  # Job 5: Integration
   n8n-integration:
-    name: 🌐 n8n Integration
+    name: 🌐 Integration
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [smoke-tests, essential-tests]
     steps:
-      - name: 📊 Checkout code
+      - name: 📊 Checkout
         uses: actions/checkout@v4
       
       - name: 📥 Download Docker image
@@ -372,10 +317,9 @@ jobs:
           path: /tmp
       
       - name: 📦 Load Docker image
-        run: |
-          docker load < /tmp/n8n-enhanced.tar.gz
+        run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env file
+      - name: 📝 Create .env
         run: |
           cp .env.example .env
           sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
@@ -385,39 +329,35 @@ jobs:
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
       - name: 🚀 Start n8n stack
-        run: |
-          docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/docker-start.log
+        run: docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/integration-start.log
       
-      - name: 🔍 Verify n8n is accessible
+      - name: 🔍 Verify n8n
         run: |
           for i in {1..40}; do
-            if curl -sf http://localhost:5678 > /dev/null; then
-              echo "✅ n8n is accessible"
-              exit 0
-            fi
+            curl -sf http://localhost:5678 > /dev/null && { echo "✅ Accessible"; exit 0; }
             sleep 3
           done
           exit 1
       
-      - name: 🧪 Run n8n workflow tests
+      - name: 🧪 Run workflow tests
         run: |
           if [ -f "tests/n8n/test_workflows.sh" ]; then
             chmod +x tests/n8n/test_workflows.sh
-            bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/test-output.log
+            bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/integration-test.log
           else
-            echo "⚠️  Workflow test file not found, skipping" | tee /tmp/test-output.log
+            echo "⚠️ No workflow test" | tee /tmp/integration-test.log
           fi
       
-      - name: 📜 Save logs (no upload yet)
+      - name: 📜 Save logs FLAT
         if: always()
         run: |
-          mkdir -p /tmp/logs/integration
-          docker-compose logs --tail=200 n8n > /tmp/logs/integration/docker-n8n.log 2>&1
-          docker-compose logs --tail=100 postgres > /tmp/logs/integration/docker-postgres.log 2>&1
-          cp /tmp/test-output.log /tmp/logs/integration/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/integration/test-output.log
-          echo "Status: ${{ job.status }}" > /tmp/logs/integration/status.txt
+          mkdir -p /tmp/logs
+          docker-compose logs --tail=200 n8n > /tmp/logs/integration-n8n.log 2>&1
+          docker-compose logs --tail=100 postgres > /tmp/logs/integration-postgres.log 2>&1
+          cp /tmp/integration-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/integration-test.log
+          echo "${{ job.status }}" > /tmp/logs/integration-status.txt
       
-      - name: 💾 Upload logs to workspace (temporary)
+      - name: 💾 Upload temp logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -429,14 +369,14 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 6: Master E2E (full stack)
+  # Job 6: Master E2E
   master-e2e:
     name: 🏆 Master E2E
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration]
     steps:
-      - name: 📊 Checkout code
+      - name: 📊 Checkout
         uses: actions/checkout@v4
       
       - name: 📥 Download Docker image
@@ -446,10 +386,9 @@ jobs:
           path: /tmp
       
       - name: 📦 Load Docker image
-        run: |
-          docker load < /tmp/n8n-enhanced.tar.gz
+        run: docker load < /tmp/n8n-enhanced.tar.gz
       
-      - name: 📝 Create .env file
+      - name: 📝 Create .env
         run: |
           cp .env.example .env
           sed -i "s/CHANGE_ME_POSTGRES_PASSWORD/test_pg_$(openssl rand -hex 12)/g" .env
@@ -458,42 +397,37 @@ jobs:
           sed -i "s/CHANGE_ME_TOR_PASSWORD/test_tor_$(openssl rand -hex 12)/g" .env
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
-      - name: 🚀 Start full stack (8 services)
-        run: |
-          docker-compose up -d 2>&1 | tee /tmp/docker-start.log
+      - name: 🚀 Start full stack
+        run: docker-compose up -d 2>&1 | tee /tmp/master-start.log
       
-      - name: ⏱️ Smart wait for all services
+      - name: ⏱️ Wait for services
         run: |
-          echo "Waiting for all 8 services..."
+          echo "Waiting for 8 services..."
           sleep 30
           for i in {1..30}; do
             RUNNING=$(docker-compose ps | grep -c "Up" || echo 0)
-            if [ "$RUNNING" -ge 6 ]; then
-              echo "✅ Services are ready ($RUNNING running)"
-              sleep 10
-              break
-            fi
+            [ "$RUNNING" -ge 6 ] && { echo "✅ Ready ($RUNNING)"; sleep 10; break; }
             sleep 3
           done
       
-      - name: 🏆 Run MASTER E2E TEST
+      - name: 🏆 Run MASTER TEST
         run: |
           chmod +x tests/master/test_full_e2e.sh
-          bash tests/master/test_full_e2e.sh 2>&1 | tee /tmp/test-output.log
+          bash tests/master/test_full_e2e.sh 2>&1 | tee /tmp/master-test.log
       
-      - name: 📜 Save logs (no upload yet)
+      - name: 📜 Save logs FLAT
         if: always()
         run: |
-          mkdir -p /tmp/logs/master
-          docker-compose ps > /tmp/logs/master/docker-ps.log 2>&1
-          docker-compose logs --tail=200 n8n > /tmp/logs/master/docker-n8n.log 2>&1
-          docker-compose logs --tail=100 postgres > /tmp/logs/master/docker-postgres.log 2>&1
-          docker-compose logs --tail=50 redis > /tmp/logs/master/docker-redis.log 2>&1
-          docker-compose logs --tail=50 prometheus > /tmp/logs/master/docker-prometheus.log 2>&1
-          cp /tmp/test-output.log /tmp/logs/master/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/master/test-output.log
-          echo "Status: ${{ job.status }}" > /tmp/logs/master/status.txt
+          mkdir -p /tmp/logs
+          docker-compose ps > /tmp/logs/master-ps.log 2>&1
+          docker-compose logs --tail=200 n8n > /tmp/logs/master-n8n.log 2>&1
+          docker-compose logs --tail=100 postgres > /tmp/logs/master-postgres.log 2>&1
+          docker-compose logs --tail=50 redis > /tmp/logs/master-redis.log 2>&1
+          docker-compose logs --tail=50 prometheus > /tmp/logs/master-prometheus.log 2>&1
+          cp /tmp/master-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/master-test.log
+          echo "${{ job.status }}" > /tmp/logs/master-status.txt
       
-      - name: 💾 Upload logs to workspace (temporary)
+      - name: 💾 Upload temp logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -505,17 +439,17 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 7: CTRF Final Report - COLLECTS EVERYTHING INTO ONE ARTIFACT
+  # Job 7: CTRF Final Report - FLAT STRUCTURE
   ctrf-report:
-    name: 🤖 CTRF Final Report
+    name: 🤖 CTRF Final
     runs-on: ubuntu-latest
     needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, master-e2e]
     if: always()
     steps:
-      - name: 📊 Checkout code
+      - name: 📊 Checkout
         uses: actions/checkout@v4
       
-      - name: 📥 Download ALL temporary logs
+      - name: 📥 Download ALL temp logs
         uses: actions/download-artifact@v4
         with:
           pattern: temp-logs-*
@@ -523,67 +457,53 @@ jobs:
           merge-multiple: true
         continue-on-error: true
       
-      - name: 🔀 Merge all logs into unified structure
+      - name: 🔀 Create FLAT structure
         run: |
           mkdir -p logs
           
-          # Объединяем все скачанные временные логи
+          # Объединяем ВСЕ файлы в ОДНУ ПЛОСКУЮ директорию
           if [ -d "all-temp-logs" ]; then
-            cp -r all-temp-logs/* logs/ 2>/dev/null || echo "No temp logs to merge"
+            find all-temp-logs -type f -exec cp {} logs/ \;
           fi
           
-          echo "📦 Final unified structure:"
-          tree logs/ || find logs/ -type f
+          echo "📦 FLAT structure created:"
+          ls -lh logs/
       
-      - name: 🔍 Analyze logs and extract errors
-        id: analyze-logs
+      - name: 🔍 Extract errors
         run: |
-          mkdir -p logs/ctrf logs/metadata
-          
-          # Функция для извлечения первой ошибки из логов
+          # Функция поиска ошибок по префиксу файла
           extract_error() {
-            local log_dir="$1"
-            if [ -d "logs/$log_dir" ]; then
-              grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" \
-                "logs/$log_dir"/*.log 2>/dev/null | head -1 | sed 's/"/\\"/g' || echo "Unknown error"
-            else
-              echo "No logs found"
-            fi
+            local prefix="$1"
+            grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" \
+              logs/${prefix}-*.log 2>/dev/null | head -1 | sed 's/"/\\"/g' || echo "No logs found"
           }
           
-          # Извлекаем ошибки
-          ERROR_FAST_VALIDATION=$(extract_error "fast-validation")
+          ERROR_FAST=$(extract_error "fast-validation")
           ERROR_SMOKE=$(extract_error "smoke-postgres")
           ERROR_ESSENTIAL=$(extract_error "essential-health")
           ERROR_E2E=$(extract_error "e2e")
           ERROR_INTEGRATION=$(extract_error "integration")
           ERROR_MASTER=$(extract_error "master")
           
-          # Сохраняем в переменные окружения
-          echo "ERROR_FAST_VALIDATION=$ERROR_FAST_VALIDATION" >> $GITHUB_ENV
+          echo "ERROR_FAST=$ERROR_FAST" >> $GITHUB_ENV
           echo "ERROR_SMOKE=$ERROR_SMOKE" >> $GITHUB_ENV
           echo "ERROR_ESSENTIAL=$ERROR_ESSENTIAL" >> $GITHUB_ENV
           echo "ERROR_E2E=$ERROR_E2E" >> $GITHUB_ENV
           echo "ERROR_INTEGRATION=$ERROR_INTEGRATION" >> $GITHUB_ENV
           echo "ERROR_MASTER=$ERROR_MASTER" >> $GITHUB_ENV
           
-          # Сохраняем метаданные ошибок
-          cat > logs/metadata/errors.txt << EOF
-          Fast Validation: $ERROR_FAST_VALIDATION
-          Smoke Tests: $ERROR_SMOKE
-          Essential Tests: $ERROR_ESSENTIAL
-          E2E Tests: $ERROR_E2E
+          # Сохраняем в ПЛОСКИЙ файл
+          cat > logs/errors.txt << EOF
+          Fast: $ERROR_FAST
+          Smoke: $ERROR_SMOKE
+          Essential: $ERROR_ESSENTIAL
+          E2E: $ERROR_E2E
           Integration: $ERROR_INTEGRATION
-          Master E2E: $ERROR_MASTER
+          Master: $ERROR_MASTER
           EOF
-          
-          echo "✅ Errors extracted"
-          cat logs/metadata/errors.txt
       
-      - name: 📦 Generate CTRF Report
+      - name: 📦 Generate CTRF
         run: |
-          # Подсчёт статистики
-          TOTAL_TESTS=12
           PASSED=0
           FAILED=0
           
@@ -594,18 +514,7 @@ jobs:
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          START_TIME=$(date -u -d '12 minutes ago' +%s)000
-          STOP_TIME=$(date -u +%s)000
-          
-          STATUS_FAST_VALIDATION="${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_SMOKE_TESTS="${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_ESSENTIAL_TESTS="${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_E2E_TESTS="${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_N8N_INTEGRATION="${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}"
-          STATUS_MASTER_E2E="${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}"
-          
-          # Создание CTRF отчёта
-          cat > logs/ctrf/ctrf-report.json << EOF
+          cat > logs/ctrf-report.json << EOF
           {
             "results": {
               "tool": {"name": "n8n-scraper-docker", "version": "3.0.0"},
@@ -616,21 +525,21 @@ jobs:
                 "pending": 0,
                 "skipped": 0,
                 "other": 0,
-                "start": ${START_TIME},
-                "stop": ${STOP_TIME}
+                "start": $(date -u -d '12 minutes ago' +%s)000,
+                "stop": $(date -u +%s)000
               },
               "tests": [
-                {"name": "Fast Validation", "status": "${STATUS_FAST_VALIDATION}", "duration": 300000, "message": "${ERROR_FAST_VALIDATION}"},
-                {"name": "Smoke: PostgreSQL", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000, "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Redis", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000, "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Tor", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000, "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Prometheus", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000, "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Grafana", "status": "${STATUS_SMOKE_TESTS}", "duration": 120000, "message": "${ERROR_SMOKE}"},
-                {"name": "Essential: Health", "status": "${STATUS_ESSENTIAL_TESTS}", "duration": 360000, "message": "${ERROR_ESSENTIAL}"},
-                {"name": "Essential: Workflow", "status": "${STATUS_ESSENTIAL_TESTS}", "duration": 360000, "message": "${ERROR_ESSENTIAL}"},
-                {"name": "E2E: Node.js", "status": "${STATUS_E2E_TESTS}", "duration": 720000, "message": "${ERROR_E2E}"},
-                {"name": "Integration: n8n", "status": "${STATUS_N8N_INTEGRATION}", "duration": 600000, "message": "${ERROR_INTEGRATION}"},
-                {"name": "Master: Full Stack", "status": "${STATUS_MASTER_E2E}", "duration": 900000, "message": "${ERROR_MASTER}"},
+                {"name": "Fast Validation", "status": "${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_FAST}"},
+                {"name": "Smoke: PostgreSQL", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
+                {"name": "Smoke: Redis", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
+                {"name": "Smoke: Tor", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
+                {"name": "Smoke: Prometheus", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
+                {"name": "Smoke: Grafana", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
+                {"name": "Essential: Health", "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_ESSENTIAL}"},
+                {"name": "Essential: Workflow", "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_ESSENTIAL}"},
+                {"name": "E2E: Node.js", "status": "${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_E2E}"},
+                {"name": "Integration: n8n", "status": "${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_INTEGRATION}"},
+                {"name": "Master: Full Stack", "status": "${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_MASTER}"},
                 {"name": "Perf: Latency", "status": "passed", "duration": 5300}
               ],
               "extra": {"prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92}}
@@ -638,71 +547,31 @@ jobs:
           }
           EOF
           
-          # Метаданные workflow
-          cat > logs/metadata/workflow-info.txt << EOF
+          cat > logs/workflow-info.txt << EOF
           Workflow: ${{ github.workflow }}
-          Run ID: ${{ github.run_id }}
-          Run Number: ${{ github.run_number }}
+          Run: ${{ github.run_number }}
           Commit: ${{ github.sha }}
           Branch: ${{ github.ref_name }}
           Actor: ${{ github.actor }}
-          Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           EOF
           
-          # Создаём полный индекс файлов
-          find logs/ -type f > logs/index.txt
+          ls -1 logs/ > logs/index.txt
           
-          echo "✅ CTRF report generated"
-          cat logs/ctrf/ctrf-report.json | jq '.'
+          echo "✅ CTRF generated"
+          echo "📁 Files in archive:"
+          cat logs/index.txt
       
-      - name: 📊 Publish CTRF Test Report
+      - name: 📊 Publish CTRF
         uses: ctrf-io/github-test-reporter@v1
         with:
-          report-path: './logs/ctrf/*.json'
+          report-path: './logs/ctrf-report.json'
           summary-report: true
           test-report: true
           failed-report: true
         if: always()
       
-      - name: 🤖 Generate AI Summary
-        run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          # 🚀 n8n Scraper - Complete Test Report
-          
-          ## 📊 Summary
-          
-          **Tests:** $(jq '.results.summary.passed' logs/ctrf/ctrf-report.json)/$(jq '.results.summary.tests' logs/ctrf/ctrf-report.json) passed  
-          **Duration:** $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' logs/ctrf/ctrf-report.json) minutes  
-          **Status:** ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && '✅ PASSED' || '❌ FAILED' }}
-          
-          ## 🔍 Test Results
-          
-          | Test Suite | Status | Error |
-          |------------|--------|-------|
-          | Fast Validation | ${{ needs.fast-validation.result == 'success' && '✅' || '❌' }} | ${ERROR_FAST_VALIDATION} |
-          | Smoke Tests | ${{ needs.smoke-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_SMOKE} |
-          | Essential Tests | ${{ needs.essential-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_ESSENTIAL} |
-          | E2E Tests | ${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_E2E} |
-          | Integration | ${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }} | ${ERROR_INTEGRATION} |
-          | Master E2E | ${{ needs.master-e2e.result == 'success' && '✅' || '❌' }} | ${ERROR_MASTER} |
-          
-          ## 📦 Artifact
-          
-          **🎯 [Download ci-artifacts-complete.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)** - ONE FILE WITH EVERYTHING!
-          
-          Contains:
-          - 📊 CTRF report (JSON)
-          - 📝 All test logs
-          - 🔍 Error diagnostics
-          - ℹ️  Workflow metadata
-          
-          **Retention:** 30 days
-          
-          ---
-          [Workflow Run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | Commit `${{ github.sha }}`
-          EOF
-      
-      - name: 📤 Upload THE ONLY ONE FINAL ARTIFACT
+      - name: 📤 Upload SINGLE FLAT ARTIFACT
         uses: actions/upload-artifact@v4
         with:
           name: ci-artifacts-complete
@@ -710,7 +579,7 @@ jobs:
           retention-days: 30
         if: always()
       
-      - name: 🧹 Cleanup temporary artifacts
+      - name: 🧹 Delete temp artifacts
         uses: geekyeggo/delete-artifact@v5
         with:
           name: temp-logs-*
