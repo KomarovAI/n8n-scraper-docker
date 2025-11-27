@@ -12,6 +12,9 @@
 ✅ **Автоматическое тестирование** (CI/CD)  
 ✅ **Полный мониторинг** (Prometheus + Grafana)  
 ✅ **n8n E2E Testing** (workflow validation) ⭐  
+✅ **Smoke Testing** (container stability) 🔥  
+✅ **Webhook Testing** (entry points validation) 🔗  
+✅ **Subworkflow Testing** (unit tests) 🔗  
 
 ---
 
@@ -78,17 +81,25 @@ docker-compose ps
 
 Проект включает **comprehensive CI/CD test suite**, который автоматически запускается при каждом push и pull request:
 
-### **7 типов тестов:**
+### **10 типов тестов:**
 
 ✅ **Lint & Validation** — docker-compose.yml, Dockerfile, shell scripts  
 ✅ **Security Scan** — Trivy vulnerability scanner + TruffleHog secret detection  
 ✅ **Docker Build** — сборка образов и проверка размера  
+✅ **Smoke Test** — container stability, packaging bugs 🔥 ⭐  
 ✅ **Health Checks** — PostgreSQL, Redis, Prometheus, Grafana  
 ✅ **Integration Tests** — connectivity, data persistence, exporters  
-✅ **n8n Workflow E2E** — workflow import, execution, validation ⭐  
+✅ **n8n Workflow E2E** — workflow import, execution, validation  
+✅ **n8n Webhook Test** — webhook endpoints, payload processing 🔗 ⭐  
+✅ **n8n Subworkflow Test** — Execute Workflow node, data passing 🔗 ⭐  
 ✅ **Test Summary** — финальный отчёт  
 
-**Подробнее:** [🧪 TESTING.md](TESTING.md) | [n8n E2E Tests](tests/n8n/README.md)
+**Подробнее:** [🧪 TESTING.md](TESTING.md)
+
+**Новые тесты:**
+- [🔥 Smoke Tests](tests/smoke/README.md) — первая линия защиты от packaging bugs
+- [🔗 Webhook Tests](tests/webhooks/README.md) — entry points validation
+- [🔗 Subworkflow Tests](tests/subworkflows/README.md) — unit tests для n8n workflows
 
 ---
 
@@ -183,7 +194,9 @@ docker-compose up -d --build
 
 - **[🚀 README-docker.md](README-docker.md)** — детальная инструкция Docker Compose
 - **[🧪 TESTING.md](TESTING.md)** — полная документация по тестированию
-- **[⭐ n8n E2E Tests](tests/n8n/README.md)** — E2E тестирование workflows
+- **[🔥 Smoke Tests](tests/smoke/README.md)** — тесты стабильности контейнеров ⭐
+- **[🔗 Webhook Tests](tests/webhooks/README.md)** — тесты webhook endpoints ⭐
+- **[🔗 Subworkflow Tests](tests/subworkflows/README.md)** — unit тесты workflows ⭐
 - **[📊 MONITORING_SETUP.md](MONITORING_SETUP.md)** — настройка мониторинга
 - **[🔧 PRODUCTION_FIXES_V3.md](PRODUCTION_FIXES_V3.md)** — все 15 production-исправлений
 - **[📊 AUDIT_REPORT_FINAL.md](AUDIT_REPORT_FINAL.md)** — финальный аудит (4.95/5.0)
@@ -271,4 +284,5 @@ A: `docker-compose exec postgres pg_dump -U scraper_user scraper_db > backup_$(d
 ---
 
 **Built with ❤️ by KomarovAI**  
-**Production-Ready ✅ | Docker-Optimized 🐳 | Auto-Tested 🧪 | Fully Monitored 📊**
+**Production-Ready ✅ | Docker-Optimized 🐳 | Auto-Tested 🧪 | Fully Monitored 📊**  
+**Smoke 🔥 | Webhook 🔗 | Subworkflow 🔗 Tested!** ⭐  
