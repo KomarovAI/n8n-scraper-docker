@@ -78,22 +78,21 @@ jobs:
           path: /tmp/n8n-enhanced.tar.gz
           retention-days: 1
       
-      - name: 📜 Save logs to unified structure
+      - name: 📜 Save logs (no upload yet)
         if: always()
         run: |
-          mkdir -p logs/fast-validation
-          cp /tmp/docker-build.log logs/fast-validation/build.log 2>/dev/null || echo "No build log" > logs/fast-validation/build.log
-          echo "fast-validation/build.log" > logs/index.txt
-          echo "Status: ${{ job.status }}" > logs/fast-validation/status.txt
+          mkdir -p /tmp/logs/fast-validation
+          cp /tmp/docker-build.log /tmp/logs/fast-validation/build.log 2>/dev/null || echo "No build log" > /tmp/logs/fast-validation/build.log
+          echo "Status: ${{ job.status }}" > /tmp/logs/fast-validation/status.txt
+          echo "fast-validation/build.log" > /tmp/logs/index.txt
       
-      - name: 📤 Upload fast-validation logs
+      - name: 💾 Upload logs to workspace (temporary)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-fast-validation
-          path: logs/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: temp-logs-fast-validation
+          path: /tmp/logs/
+          retention-days: 1
 
   # Job 2: Smoke tests (maximum parallelization)
   smoke-tests:
@@ -170,26 +169,22 @@ jobs:
           chmod +x ${{ matrix.test.script }} || true
           bash ${{ matrix.test.script }} 2>&1 | tee /tmp/test-output.log
       
-      - name: 📜 Save logs to unified structure
+      - name: 📜 Save logs (no upload yet)
         if: always()
         run: |
-          mkdir -p logs/smoke-${{ matrix.test.slug }}
-          docker-compose ps > logs/smoke-${{ matrix.test.slug }}/docker-ps.log 2>&1
-          docker-compose logs --tail=100 ${{ matrix.test.services }} > logs/smoke-${{ matrix.test.slug }}/docker-logs.log 2>&1
-          cp /tmp/test-output.log logs/smoke-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > logs/smoke-${{ matrix.test.slug }}/test-output.log
-          echo "Status: ${{ job.status }}" > logs/smoke-${{ matrix.test.slug }}/status.txt
-          echo "smoke-${{ matrix.test.slug }}/docker-ps.log" >> logs/index.txt
-          echo "smoke-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
-          echo "smoke-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
+          mkdir -p /tmp/logs/smoke-${{ matrix.test.slug }}
+          docker-compose ps > /tmp/logs/smoke-${{ matrix.test.slug }}/docker-ps.log 2>&1
+          docker-compose logs --tail=100 ${{ matrix.test.services }} > /tmp/logs/smoke-${{ matrix.test.slug }}/docker-logs.log 2>&1
+          cp /tmp/test-output.log /tmp/logs/smoke-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/smoke-${{ matrix.test.slug }}/test-output.log
+          echo "Status: ${{ job.status }}" > /tmp/logs/smoke-${{ matrix.test.slug }}/status.txt
       
-      - name: 📤 Upload smoke test logs
+      - name: 💾 Upload logs to workspace (temporary)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-smoke-${{ matrix.test.slug }}
-          path: logs/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: temp-logs-smoke-${{ matrix.test.slug }}
+          path: /tmp/logs/
+          retention-days: 1
       
       - name: 🧹 Cleanup
         if: always()
@@ -256,26 +251,22 @@ jobs:
           chmod +x ${{ matrix.test.script }}
           bash ${{ matrix.test.script }} 2>&1 | tee /tmp/test-output.log
       
-      - name: 📜 Save logs to unified structure
+      - name: 📜 Save logs (no upload yet)
         if: always()
         run: |
-          mkdir -p logs/essential-${{ matrix.test.slug }}
-          docker-compose ps > logs/essential-${{ matrix.test.slug }}/docker-ps.log 2>&1
-          docker-compose logs --tail=150 > logs/essential-${{ matrix.test.slug }}/docker-logs.log 2>&1
-          cp /tmp/test-output.log logs/essential-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > logs/essential-${{ matrix.test.slug }}/test-output.log
-          echo "Status: ${{ job.status }}" > logs/essential-${{ matrix.test.slug }}/status.txt
-          echo "essential-${{ matrix.test.slug }}/docker-ps.log" >> logs/index.txt
-          echo "essential-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
-          echo "essential-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
+          mkdir -p /tmp/logs/essential-${{ matrix.test.slug }}
+          docker-compose ps > /tmp/logs/essential-${{ matrix.test.slug }}/docker-ps.log 2>&1
+          docker-compose logs --tail=150 > /tmp/logs/essential-${{ matrix.test.slug }}/docker-logs.log 2>&1
+          cp /tmp/test-output.log /tmp/logs/essential-${{ matrix.test.slug }}/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/essential-${{ matrix.test.slug }}/test-output.log
+          echo "Status: ${{ job.status }}" > /tmp/logs/essential-${{ matrix.test.slug }}/status.txt
       
-      - name: 📤 Upload essential test logs
+      - name: 💾 Upload logs to workspace (temporary)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-essential-${{ matrix.test.slug }}
-          path: logs/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: temp-logs-essential-${{ matrix.test.slug }}
+          path: /tmp/logs/
+          retention-days: 1
       
       - name: 🧹 Cleanup
         if: always()
@@ -344,24 +335,21 @@ jobs:
             echo "⚠️  No E2E test found" | tee /tmp/test-output.log
           fi
       
-      - name: 📜 Save logs to unified structure
+      - name: 📜 Save logs (no upload yet)
         if: always()
         run: |
-          mkdir -p logs/e2e
-          docker-compose logs --tail=200 n8n > logs/e2e/docker-n8n.log 2>&1
-          cp /tmp/test-output.log logs/e2e/test-output.log 2>/dev/null || echo "No test output" > logs/e2e/test-output.log
-          echo "Status: ${{ job.status }}" > logs/e2e/status.txt
-          echo "e2e/docker-n8n.log" >> logs/index.txt
-          echo "e2e/test-output.log" >> logs/index.txt
+          mkdir -p /tmp/logs/e2e
+          docker-compose logs --tail=200 n8n > /tmp/logs/e2e/docker-n8n.log 2>&1
+          cp /tmp/test-output.log /tmp/logs/e2e/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/e2e/test-output.log
+          echo "Status: ${{ job.status }}" > /tmp/logs/e2e/status.txt
       
-      - name: 📤 Upload e2e test logs
+      - name: 💾 Upload logs to workspace (temporary)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-e2e
-          path: logs/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: temp-logs-e2e
+          path: /tmp/logs/
+          retention-days: 1
       
       - name: 🧹 Cleanup
         if: always()
@@ -420,26 +408,22 @@ jobs:
             echo "⚠️  Workflow test file not found, skipping" | tee /tmp/test-output.log
           fi
       
-      - name: 📜 Save logs to unified structure
+      - name: 📜 Save logs (no upload yet)
         if: always()
         run: |
-          mkdir -p logs/integration
-          docker-compose logs --tail=200 n8n > logs/integration/docker-n8n.log 2>&1
-          docker-compose logs --tail=100 postgres > logs/integration/docker-postgres.log 2>&1
-          cp /tmp/test-output.log logs/integration/test-output.log 2>/dev/null || echo "No test output" > logs/integration/test-output.log
-          echo "Status: ${{ job.status }}" > logs/integration/status.txt
-          echo "integration/docker-n8n.log" >> logs/index.txt
-          echo "integration/docker-postgres.log" >> logs/index.txt
-          echo "integration/test-output.log" >> logs/index.txt
+          mkdir -p /tmp/logs/integration
+          docker-compose logs --tail=200 n8n > /tmp/logs/integration/docker-n8n.log 2>&1
+          docker-compose logs --tail=100 postgres > /tmp/logs/integration/docker-postgres.log 2>&1
+          cp /tmp/test-output.log /tmp/logs/integration/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/integration/test-output.log
+          echo "Status: ${{ job.status }}" > /tmp/logs/integration/status.txt
       
-      - name: 📤 Upload integration test logs
+      - name: 💾 Upload logs to workspace (temporary)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-integration
-          path: logs/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: temp-logs-integration
+          path: /tmp/logs/
+          retention-days: 1
       
       - name: 🧹 Cleanup
         if: always()
@@ -497,40 +481,33 @@ jobs:
           chmod +x tests/master/test_full_e2e.sh
           bash tests/master/test_full_e2e.sh 2>&1 | tee /tmp/test-output.log
       
-      - name: 📜 Save logs to unified structure
+      - name: 📜 Save logs (no upload yet)
         if: always()
         run: |
-          mkdir -p logs/master
-          docker-compose ps > logs/master/docker-ps.log 2>&1
-          docker-compose logs --tail=200 n8n > logs/master/docker-n8n.log 2>&1
-          docker-compose logs --tail=100 postgres > logs/master/docker-postgres.log 2>&1
-          docker-compose logs --tail=50 redis > logs/master/docker-redis.log 2>&1
-          docker-compose logs --tail=50 prometheus > logs/master/docker-prometheus.log 2>&1
-          cp /tmp/test-output.log logs/master/test-output.log 2>/dev/null || echo "No test output" > logs/master/test-output.log
-          echo "Status: ${{ job.status }}" > logs/master/status.txt
-          echo "master/docker-ps.log" >> logs/index.txt
-          echo "master/docker-n8n.log" >> logs/index.txt
-          echo "master/docker-postgres.log" >> logs/index.txt
-          echo "master/docker-redis.log" >> logs/index.txt
-          echo "master/docker-prometheus.log" >> logs/index.txt
-          echo "master/test-output.log" >> logs/index.txt
+          mkdir -p /tmp/logs/master
+          docker-compose ps > /tmp/logs/master/docker-ps.log 2>&1
+          docker-compose logs --tail=200 n8n > /tmp/logs/master/docker-n8n.log 2>&1
+          docker-compose logs --tail=100 postgres > /tmp/logs/master/docker-postgres.log 2>&1
+          docker-compose logs --tail=50 redis > /tmp/logs/master/docker-redis.log 2>&1
+          docker-compose logs --tail=50 prometheus > /tmp/logs/master/docker-prometheus.log 2>&1
+          cp /tmp/test-output.log /tmp/logs/master/test-output.log 2>/dev/null || echo "No test output" > /tmp/logs/master/test-output.log
+          echo "Status: ${{ job.status }}" > /tmp/logs/master/status.txt
       
-      - name: 📤 Upload master test logs
+      - name: 💾 Upload logs to workspace (temporary)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-master
-          path: logs/
-          retention-days: 30
-          if-no-files-found: ignore
+          name: temp-logs-master
+          path: /tmp/logs/
+          retention-days: 1
       
       - name: 🧹 Cleanup
         if: always()
         run: docker-compose down -v
 
-  # Job 7: CTRF AI-Optimized Report with Error Diagnostics
+  # Job 7: CTRF Final Report - COLLECTS EVERYTHING INTO ONE ARTIFACT
   ctrf-report:
-    name: 🤖 CTRF AI Report
+    name: 🤖 CTRF Final Report
     runs-on: ubuntu-latest
     needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, master-e2e]
     if: always()
@@ -538,32 +515,25 @@ jobs:
       - name: 📊 Checkout code
         uses: actions/checkout@v4
       
-      - name: 📥 Download ALL artifacts
+      - name: 📥 Download ALL temporary logs
         uses: actions/download-artifact@v4
         with:
-          pattern: ci-artifacts-*
-          path: all-artifacts/
+          pattern: temp-logs-*
+          path: all-temp-logs/
           merge-multiple: true
         continue-on-error: true
       
       - name: 🔀 Merge all logs into unified structure
         run: |
           mkdir -p logs
-          # Объединяем все скачанные артефакты в одну директорию logs/
-          if [ -d "all-artifacts" ]; then
-            cp -r all-artifacts/* logs/ 2>/dev/null || echo "No artifacts to merge"
+          
+          # Объединяем все скачанные временные логи
+          if [ -d "all-temp-logs" ]; then
+            cp -r all-temp-logs/* logs/ 2>/dev/null || echo "No temp logs to merge"
           fi
           
-          echo "📦 Merged artifact structure:"
+          echo "📦 Final unified structure:"
           tree logs/ || find logs/ -type f
-      
-      - name: 📜 Show log structure
-        run: |
-          echo "📦 Complete artifact structure:"
-          tree logs/ || find logs/ -type f
-          echo ""
-          echo "📄 Index file:"
-          cat logs/index.txt 2>/dev/null || echo "No index.txt found"
       
       - name: 🔍 Analyze logs and extract errors
         id: analyze-logs
@@ -574,7 +544,6 @@ jobs:
           extract_error() {
             local log_dir="$1"
             if [ -d "logs/$log_dir" ]; then
-              # Ищем ERROR, error, failed, FAILED, или exit code
               grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" \
                 "logs/$log_dir"/*.log 2>/dev/null | head -1 | sed 's/"/\\"/g' || echo "Unknown error"
             else
@@ -582,7 +551,7 @@ jobs:
             fi
           }
           
-          # Извлекаем ошибки из каждой джобы
+          # Извлекаем ошибки
           ERROR_FAST_VALIDATION=$(extract_error "fast-validation")
           ERROR_SMOKE=$(extract_error "smoke-postgres")
           ERROR_ESSENTIAL=$(extract_error "essential-health")
@@ -590,7 +559,7 @@ jobs:
           ERROR_INTEGRATION=$(extract_error "integration")
           ERROR_MASTER=$(extract_error "master")
           
-          # Сохраняем в файл для использования в следующих степах
+          # Сохраняем в переменные окружения
           echo "ERROR_FAST_VALIDATION=$ERROR_FAST_VALIDATION" >> $GITHUB_ENV
           echo "ERROR_SMOKE=$ERROR_SMOKE" >> $GITHUB_ENV
           echo "ERROR_ESSENTIAL=$ERROR_ESSENTIAL" >> $GITHUB_ENV
@@ -598,7 +567,7 @@ jobs:
           echo "ERROR_INTEGRATION=$ERROR_INTEGRATION" >> $GITHUB_ENV
           echo "ERROR_MASTER=$ERROR_MASTER" >> $GITHUB_ENV
           
-          # Сохраняем метаданные
+          # Сохраняем метаданные ошибок
           cat > logs/metadata/errors.txt << EOF
           Fast Validation: $ERROR_FAST_VALIDATION
           Smoke Tests: $ERROR_SMOKE
@@ -608,62 +577,26 @@ jobs:
           Master E2E: $ERROR_MASTER
           EOF
           
-          echo "✅ Errors extracted and saved to logs/metadata/errors.txt"
+          echo "✅ Errors extracted"
           cat logs/metadata/errors.txt
       
-      - name: 📦 Generate Enhanced CTRF Report with Error Details
+      - name: 📦 Generate CTRF Report
         run: |
           # Подсчёт статистики
           TOTAL_TESTS=12
           PASSED=0
           FAILED=0
           
-          # Fast Validation
-          if [ "${{ needs.fast-validation.result }}" == "success" ]; then
-            PASSED=$((PASSED + 1))
-          else
-            FAILED=$((FAILED + 1))
-          fi
-          
-          # Smoke Tests (5 tests)
-          if [ "${{ needs.smoke-tests.result }}" == "success" ]; then
-            PASSED=$((PASSED + 5))
-          else
-            FAILED=$((FAILED + 5))
-          fi
-          
-          # Essential Tests (2 tests)
-          if [ "${{ needs.essential-tests.result }}" == "success" ]; then
-            PASSED=$((PASSED + 2))
-          else
-            FAILED=$((FAILED + 2))
-          fi
-          
-          # E2E Test
-          if [ "${{ needs.e2e-tests.result }}" == "success" ]; then
-            PASSED=$((PASSED + 1))
-          else
-            FAILED=$((FAILED + 1))
-          fi
-          
-          # n8n Integration
-          if [ "${{ needs.n8n-integration.result }}" == "success" ]; then
-            PASSED=$((PASSED + 1))
-          else
-            FAILED=$((FAILED + 1))
-          fi
-          
-          # Master E2E
-          if [ "${{ needs.master-e2e.result }}" == "success" ]; then
-            PASSED=$((PASSED + 1))
-          else
-            FAILED=$((FAILED + 1))
-          fi
+          [ "${{ needs.fast-validation.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.smoke-tests.result }}" == "success" ] && PASSED=$((PASSED + 5)) || FAILED=$((FAILED + 5))
+          [ "${{ needs.essential-tests.result }}" == "success" ] && PASSED=$((PASSED + 2)) || FAILED=$((FAILED + 2))
+          [ "${{ needs.e2e-tests.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
           START_TIME=$(date -u -d '12 minutes ago' +%s)000
           STOP_TIME=$(date -u +%s)000
           
-          # Определение статуса для каждого теста
           STATUS_FAST_VALIDATION="${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}"
           STATUS_SMOKE_TESTS="${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}"
           STATUS_ESSENTIAL_TESTS="${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}"
@@ -671,14 +604,11 @@ jobs:
           STATUS_N8N_INTEGRATION="${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}"
           STATUS_MASTER_E2E="${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}"
           
-          # Создание CTRF отчёта с ошибками
+          # Создание CTRF отчёта
           cat > logs/ctrf/ctrf-report.json << EOF
           {
             "results": {
-              "tool": {
-                "name": "n8n-scraper-docker",
-                "version": "3.0.0"
-              },
+              "tool": {"name": "n8n-scraper-docker", "version": "3.0.0"},
               "summary": {
                 "tests": 12,
                 "passed": ${PASSED},
@@ -703,14 +633,12 @@ jobs:
                 {"name": "Master: Full Stack", "status": "${STATUS_MASTER_E2E}", "duration": 900000, "message": "${ERROR_MASTER}"},
                 {"name": "Perf: Latency", "status": "passed", "duration": 5300}
               ],
-              "extra": {
-                "prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92}
-              }
+              "extra": {"prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92}}
             }
           }
           EOF
           
-          # Сохраняем метаданные workflow
+          # Метаданные workflow
           cat > logs/metadata/workflow-info.txt << EOF
           Workflow: ${{ github.workflow }}
           Run ID: ${{ github.run_id }}
@@ -721,8 +649,11 @@ jobs:
           Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           EOF
           
-          echo "✅ CTRF report with error diagnostics generated"
-          cat logs/ctrf/ctrf-report.json | jq '.' || cat logs/ctrf/ctrf-report.json
+          # Создаём полный индекс файлов
+          find logs/ -type f > logs/index.txt
+          
+          echo "✅ CTRF report generated"
+          cat logs/ctrf/ctrf-report.json | jq '.'
       
       - name: 📊 Publish CTRF Test Report
         uses: ctrf-io/github-test-reporter@v1
@@ -733,148 +664,55 @@ jobs:
           failed-report: true
         if: always()
       
-      - name: 🤖 Generate AI-Optimized Summary with Error Diagnostics
+      - name: 🤖 Generate AI Summary
         run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'SUMMARY_BLOCK'
-          # 🚀 n8n Scraper - Complete Test Report (ALL-IN-ONE)
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          # 🚀 n8n Scraper - Complete Test Report
           
-          ```yaml
-          # AI-OPTIMIZED YAML (85% fewer tokens vs verbose JSON)
-          # Ref: https://betterprogramming.pub/yaml-vs-json-which-is-more-efficient-for-language-models-5bc11dd0f6df
+          ## 📊 Summary
           
-          meta:
-            fmt: ctrf-v3-ai
-            tok_saved: 85%
-            artifact: ALL_IN_ONE
+          **Tests:** $(jq '.results.summary.passed' logs/ctrf/ctrf-report.json)/$(jq '.results.summary.tests' logs/ctrf/ctrf-report.json) passed  
+          **Duration:** $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' logs/ctrf/ctrf-report.json) minutes  
+          **Status:** ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && '✅ PASSED' || '❌ FAILED' }}
           
-          sum:
-            tot: $(jq '.results.summary.tests' logs/ctrf/ctrf-report.json)
-            ok: $(jq '.results.summary.passed' logs/ctrf/ctrf-report.json)
-            fail: $(jq '.results.summary.failed' logs/ctrf/ctrf-report.json)
-            rate: $(jq -r '(.results.summary.passed * 100 / .results.summary.tests | floor)' logs/ctrf/ctrf-report.json)
-            dur_m: $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' logs/ctrf/ctrf-report.json)
-            par: 12
+          ## 🔍 Test Results
           
-          prod:
-            scrape: 87
-            lat_ms: 5300
-            cost: 2.88
-            up: 99.8
-            cf: 92
+          | Test Suite | Status | Error |
+          |------------|--------|-------|
+          | Fast Validation | ${{ needs.fast-validation.result == 'success' && '✅' || '❌' }} | ${ERROR_FAST_VALIDATION} |
+          | Smoke Tests | ${{ needs.smoke-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_SMOKE} |
+          | Essential Tests | ${{ needs.essential-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_ESSENTIAL} |
+          | E2E Tests | ${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_E2E} |
+          | Integration | ${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }} | ${ERROR_INTEGRATION} |
+          | Master E2E | ${{ needs.master-e2e.result == 'success' && '✅' || '❌' }} | ${ERROR_MASTER} |
           
-          suites:
-            validation:
-              n: 1
-              st: ${{ needs.fast-validation.result == 'success' && 'ok' || 'fail' }}
-              dur_m: 5
-              err: "${ERROR_FAST_VALIDATION}"
-            smoke:
-              n: 5
-              st: ${{ needs.smoke-tests.result == 'success' && 'ok' || 'fail' }}
-              dur_m: 10
-              err: "${ERROR_SMOKE}"
-            essential:
-              n: 2
-              st: ${{ needs.essential-tests.result == 'success' && 'ok' || 'fail' }}
-              dur_m: 12
-              err: "${ERROR_ESSENTIAL}"
-            e2e:
-              n: 1
-              st: ${{ needs.e2e-tests.result == 'success' && 'ok' || 'fail' }}
-              dur_m: 12
-              err: "${ERROR_E2E}"
-            integration:
-              n: 1
-              st: ${{ needs.n8n-integration.result == 'success' && 'ok' || 'fail' }}
-              dur_m: 10
-              err: "${ERROR_INTEGRATION}"
-            master:
-              n: 1
-              st: ${{ needs.master-e2e.result == 'success' && 'ok' || 'fail' }}
-              dur_m: 15
-              err: "${ERROR_MASTER}"
+          ## 📦 Artifact
           
-          concl: ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && 'prod_ready' || 'review_req' }}
-          ```
+          **🎯 [Download ci-artifacts-complete.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)** - ONE FILE WITH EVERYTHING!
           
-          ## 📊 Human Summary
+          Contains:
+          - 📊 CTRF report (JSON)
+          - 📝 All test logs
+          - 🔍 Error diagnostics
+          - ℹ️  Workflow metadata
           
-          **Overall:** $(jq '.results.summary.passed' logs/ctrf/ctrf-report.json)/$(jq '.results.summary.tests' logs/ctrf/ctrf-report.json) ($(jq -r '(.results.summary.passed * 100 / .results.summary.tests | floor)' logs/ctrf/ctrf-report.json)%) | $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' logs/ctrf/ctrf-report.json)m | 12par  
-          **Prod:** ✅ 87%scrape, 5.3s, $2.88/1k, 99.8%up  
-          **Suites:** ⚡${{ needs.fast-validation.result == 'success' && '✅' || '❌' }}(1,5m) 💨${{ needs.smoke-tests.result == 'success' && '✅' || '❌' }}(5,10m) 🧪${{ needs.essential-tests.result == 'success' && '✅' || '❌' }}(2,12m) 🎯${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }}(1,12m) 🌐${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }}(1,10m) 🏆${{ needs.master-e2e.result == 'success' && '✅' || '❌' }}(1,15m)  
-          **Result:** ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && '✅ PROD_READY' || '❌ REVIEW_REQ' }}
-          
-          ## 🔍 Error Diagnostics
-          
-          | Test Suite | Status | Error Message | Troubleshooting |
-          |------------|--------|---------------|----------------|
-          | Fast Validation | ${{ needs.fast-validation.result == 'success' && '✅' || '❌' }} | ${ERROR_FAST_VALIDATION} | [Docker build issues](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#docker-build) |
-          | Smoke Tests | ${{ needs.smoke-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_SMOKE} | [Service startup](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#services) |
-          | Essential Tests | ${{ needs.essential-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_ESSENTIAL} | [Health checks](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#health) |
-          | E2E Tests | ${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }} | ${ERROR_E2E} | [Node.js tests](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#e2e) |
-          | Integration | ${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }} | ${ERROR_INTEGRATION} | [n8n API](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#n8n) |
-          | Master E2E | ${{ needs.master-e2e.result == 'success' && '✅' || '❌' }} | ${ERROR_MASTER} | [Full stack](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#master) |
-          
-          ## 📦 **ULTIMATE ALL-IN-ONE ARTIFACT**
-          
-          🎯 **[Download ci-artifacts-complete.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)** (ONE click, EVERYTHING inside)
-          
-          ```
-          ci-artifacts-complete/
-          ├── ctrf/
-          │   └── ctrf-report.json          ← Test report with errors
-          ├── metadata/
-          │   ├── errors.txt                ← Extracted errors summary
-          │   └── workflow-info.txt         ← Run metadata
-          ├── fast-validation/
-          │   ├── build.log
-          │   └── status.txt
-          ├── smoke-postgres/
-          │   ├── docker-ps.log
-          │   ├── docker-logs.log
-          │   ├── test-output.log
-          │   └── status.txt
-          ├── smoke-redis/
-          ├── smoke-tor/
-          ├── smoke-prometheus/
-          ├── smoke-grafana/
-          ├── essential-health/
-          ├── essential-workflow/
-          ├── e2e/
-          │   ├── docker-n8n.log
-          │   ├── test-output.log
-          │   └── status.txt
-          ├── integration/
-          │   ├── docker-n8n.log
-          │   ├── docker-postgres.log
-          │   └── test-output.log
-          ├── master/
-          │   ├── docker-ps.log
-          │   ├── docker-n8n.log
-          │   ├── docker-postgres.log
-          │   ├── docker-redis.log
-          │   ├── docker-prometheus.log
-          │   └── test-output.log
-          └── index.txt                     ← Complete file inventory
-          ```
-          
-          **Retention:** 30 days | **Size:** ~few MB compressed
+          **Retention:** 30 days
           
           ---
-          
-          [Full Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | `${{ github.sha }}` | `${{ github.ref_name }}` | #${{ github.run_number }}
-          
-          ---
-          *CTRF v3.0 | YAML AI-Opt (85% token ↓) | 🎯 **ALL-IN-ONE ARTIFACT** | Auto Error Detection ✅*
-          SUMMARY_BLOCK
-          
-          echo "✅ AI-optimized summary with ALL-IN-ONE artifact info generated"
+          [Workflow Run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | Commit `${{ github.sha }}`
+          EOF
       
-      - name: 📤 Upload final ALL-IN-ONE artifact
+      - name: 📤 Upload THE ONLY ONE FINAL ARTIFACT
         uses: actions/upload-artifact@v4
         with:
           name: ci-artifacts-complete
           path: logs/
           retention-days: 30
-          if-no-files-found: ignore
+        if: always()
+      
+      - name: 🧹 Cleanup temporary artifacts
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: temp-logs-*
+          failOnError: false
         if: always()
