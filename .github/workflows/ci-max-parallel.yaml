@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-max-parallel-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -623,7 +623,6 @@ EOF
             local prefix="$1"
             local error_msg=""
             
-            # Ищем по wildcard (исправлено!)
             for logfile in logs/${prefix}*.log; do
               if [ -f "$logfile" ]; then
                 error_msg=$(grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" "$logfile" 2>/dev/null | head -1 || echo "")
@@ -684,7 +683,6 @@ EOF
           
           SUCCESS_RATE=$((PASSED * 100 / 12))
           
-          # Читаем реальные ошибки
           ERROR_FAST=$(sed -n '2p' logs/errors-detailed.txt)
           ERROR_SMOKE=$(sed -n '5p' logs/errors-detailed.txt)
           ERROR_ESSENTIAL=$(sed -n '8p' logs/errors-detailed.txt)
@@ -692,7 +690,6 @@ EOF
           ERROR_INTEGRATION=$(sed -n '14p' logs/errors-detailed.txt)
           ERROR_MASTER=$(sed -n '17p' logs/errors-detailed.txt)
           
-          # Получаем длительности из outputs (только 4 jobs без matrix)
           DURATION_FAST=${{ needs.fast-validation.outputs.duration }}
           DURATION_SMOKE=0
           DURATION_ESSENTIAL=0
@@ -843,7 +840,7 @@ EOF
       - name: 📄 Generate workflow summary
         run: |
           cat > logs/workflow-info.txt << EOF
-Workflow: ${{ github.workflow }}
+Workflow: ci-max-parallel
 Run: ${{ github.run_number }}
 Run ID: ${{ github.run_id }}
 Commit: ${{ github.sha }}
