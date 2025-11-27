@@ -612,7 +612,7 @@ jobs:
     name: 🌐 Integration
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [smoke-tests, essential-tests]
+    needs: fast-validation
     outputs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
