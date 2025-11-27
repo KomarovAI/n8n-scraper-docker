@@ -1,91 +1,30 @@
-# GitHub Copilot Instructions
+# GitHub Copilot Instructions - n8n-scraper-docker
 
-## Repository Context
+**📢 This file references unified AI instructions**
 
-**Type:** Production-ready n8n web scraping platform  
-**Stack:** n8n, Docker Compose, PostgreSQL, Redis, Tor, ML service, Ollama, Prometheus, Grafana  
-**Architecture:** 8 microservices orchestrated via Docker Compose  
-**Status:** AI-optimized (minimal context, token-efficient)  
+## Primary Instructions Location
 
-### Performance Metrics
-- Success rate: 87%
-- Avg latency: 5.3s
-- Cost: $2.88/1000 URLs
-- Cloudflare bypass: 90-95%
+👉 **Read**: [.ai/instructions.md](../.ai/instructions.md)
 
-### Key Features
-- Hybrid fallback strategy (Firecrawl + Jina AI)
-- Smart anti-detection routing
-- Full CI/CD (10 test types)
-- Complete monitoring stack
+All AI assistants (GitHub Copilot, Cursor, Windsurf, ChatGPT, Claude) use the same instructions for consistency.
 
----
+## Quick Context
 
-## Coding Standards
+**Type**: Production n8n scraping platform (8 microservices)  
+**Status**: AI-optimized v2.0 (minimal context, token-efficient)  
+**Metrics**: 87% success, 5.3s latency, $2.88/1000 URLs  
 
-### Documentation Style
-- **Signal-based comments** (no tutorials, no verbose explanations)
-- **Token-efficient** (one-liners preferred for obvious code)
-- **Self-documenting code** (clear function/variable names)
-- **Context markers** for large files:
-  ```python
-  """
-  CONTEXT: [Brief description]
-  DEPENDENCIES: [Key deps]
-  TOKEN_PRIORITY: high|medium|low
-  """
-  ```
+## Core Principles (Summary)
 
-### Code Patterns
-- ES6+ JavaScript (const/let, arrow functions, async/await)
-- Python 3.9+ (type hints, async where beneficial)
-- Docker best practices (multi-stage builds, layer optimization)
-- RESTful APIs (standard HTTP methods, clear endpoints)
+1. **Token efficiency** - Minimal comments, compact code
+2. **Production-ready** - No TODOs, complete error handling
+3. **Security first** - Never hardcode secrets, use `@ai-ignore`
+4. **Architecture alignment** - Follow microservices pattern (8 services)
 
-### Naming Conventions
-- Functions: `verbNoun` (e.g., `fetchData`, `parseResponse`)
-- Classes: `PascalCase` (e.g., `ScraperRouter`)
-- Constants: `UPPER_SNAKE_CASE` (e.g., `MAX_RETRIES`)
-- Files: `kebab-case` (e.g., `scraper-router.js`)
+## Architecture Overview
 
-### Error Handling
-- Use try/catch for async operations
-- Return meaningful error messages
-- Log errors with context (service name, operation, timestamp)
-- Fail gracefully (fallback strategies)
-
----
-
-## AI Optimization Rules
-
-### Documentation
-- ❌ **DON'T** add verbose explanations to README
-- ❌ **DON'T** create new markdown files without updating docs/INDEX.md
-- ❌ **DON'T** duplicate information across files
-- ✅ **DO** keep README architectural and command-focused
-- ✅ **DO** use QUICKSTART.md for setup steps
-- ✅ **DO** add technical details to docs/ with INDEX update
-- ✅ **DO** maintain single source of truth
-
-### Code Changes
-- Keep all changes **minimal** (surgical edits only)
-- Follow existing patterns (consistency > innovation)
-- Preserve existing comments unless outdated
-- No TODO comments (create GitHub issues instead)
-
-### Testing
-- All new features require tests
-- Follow existing test patterns (smoke, e2e, integration)
-- Tests must pass before commit
-- Use descriptive test names
-
----
-
-## Architecture Guidelines
-
-### Service Communication
 ```
-n8n (5678) → orchestration layer
+n8n (5678) → workflow orchestration
   ↓
 postgres (5432) ← data persistence
 redis (6379) ← rate limiting, cache
@@ -98,25 +37,55 @@ prometheus (9090) → metrics collection
 grafana (3000) → visualization
 ```
 
-### Critical Paths
-1. **Workflow execution**: n8n → ml-service → scrapers → storage
-2. **Data persistence**: n8n → postgres (all workflow data)
-3. **Rate limiting**: n8n → redis (request throttling)
-4. **Monitoring**: All services → prometheus → grafana
+## Quick Commands
 
-### Dependencies
-- **ml-service** depends on: ollama, redis
-- **n8n** depends on: postgres, redis, tor, ml-service
-- **grafana** depends on: prometheus
-- **prometheus** depends on: all services (metrics endpoints)
+```bash
+# Start platform
+docker-compose up -d --build
 
----
+# View logs
+docker-compose logs -f n8n
+
+# Run tests
+docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+
+# Access services
+open http://localhost:5678  # n8n
+open http://localhost:3000  # Grafana
+open http://localhost:9090  # Prometheus
+```
+
+## Navigation Priority
+
+**Read these first when generating code:**
+
+### Critical (always read)
+1. `README.md` - Overview, quick start, metrics
+2. `docker-compose.yml` - Service definitions, networking
+3. `.env.example` - Required environment variables
+4. `.aimeta.json` - Project metadata, architecture
+
+### High Priority
+5. `ARCHITECTURE.md` - Detailed architecture, mermaid diagrams
+6. `workflows/` - n8n workflow JSON files
+7. `scrapers/` - Scraper implementations
+8. `ml/` - ML service for smart routing
+
+### Medium Priority
+9. `monitoring/` - Prometheus, Grafana configs
+10. `tests/` - Test suites
+11. `docs/HYBRID_FALLBACK_STRATEGY.md` - Fallback logic
+12. `docs/NODRIVER_ENHANCED_V2.md` - nodriver scraper details
+
+### Low Priority (only if specifically asked)
+13. `.github/workflows/` - CI/CD pipelines
+14. `scripts/` - Utility scripts
 
 ## Common Tasks
 
 ### Adding a New Scraper
-1. Create file in `scrapers/[name]-scraper.py`
-2. Implement base interface (fetch, parse, validate)
+1. Create `scrapers/[name]-scraper.py` with base interface
+2. Implement fetch, parse, validate methods
 3. Add tests in `tests/integration/test-[name]-scraper.py`
 4. Update ML routing in `ml/router.py`
 5. Add fallback logic if applicable
@@ -125,157 +94,48 @@ grafana (3000) → visualization
 1. Export workflow from n8n UI (JSON)
 2. Save to `workflows/[name].json`
 3. Add test in `tests/e2e/workflow-[name].test.js`
-4. Update `workflows/README.md` if new workflow
+4. Update documentation if new workflow
 
-### Adding Monitoring
-1. Add metrics endpoint to service
-2. Update `monitoring/prometheus.yml` (scrape config)
-3. Create dashboard in `monitoring/grafana/dashboards/`
-4. Document in `docs/INDEX.md`
-
-### Environment Variables
+### Adding Environment Variables
 1. Add to `.env.example` with description
 2. Document in README.md if critical
-3. Update docker-compose.yml service config
+3. Update `docker-compose.yml` service config
 4. Validate in CI/CD pipeline
-
----
 
 ## Testing Strategy
 
-### Test Types (all must pass)
-1. **Lint & validation** - Code quality
-2. **Security scan** - Trivy + TruffleHog
-3. **Docker build** - Image creation
-4. **Smoke test** - Container stability
-5. **Health checks** - Service availability
-6. **Integration tests** - Service communication
-7. **n8n e2e** - Workflow execution
-8. **Webhook tests** - Entry point validation
-9. **Subworkflow tests** - Workflow composition
-10. **Test summary** - Results aggregation
-
-### Running Tests Locally
-```bash
-# All tests
-docker-compose -f docker-compose.test.yml up --abort-on-container-exit
-
-# Specific test
-docker-compose run test-[name]
-
-# Manual verification
-docker-compose up -d && docker-compose ps
-```
-
----
+**All 10 test types must pass:**
+1. Lint & validation
+2. Security scan (Trivy + TruffleHog)
+3. Docker build
+4. Smoke test (container stability)
+5. Health checks
+6. Integration tests
+7. n8n workflow e2e
+8. Webhook validation
+9. Subworkflow tests
+10. Test summary
 
 ## Security Guidelines
 
-### Secrets Management
 - Never commit `.env` (in .gitignore)
-- Use 20+ char passwords (generate with `openssl rand -base64 24`)
+- Use 20+ char passwords (`openssl rand -base64 24`)
+- Store API keys in `.env` with `# @ai-ignore` comment
 - Rotate passwords every 90 days
-- Use environment variables (never hardcode)
+- Validate secrets at startup
 
-### API Keys
-- Store in `.env` (FIRECRAWL_API_KEY, JINA_API_KEY)
-- Validate presence at startup
-- Log errors without exposing keys
-- Use separate keys for dev/prod
+## Full Guidelines
 
-### Container Security
-- Run as non-root user where possible
-- Use official base images
-- Pin image versions (no :latest)
-- Scan with Trivy in CI/CD
+📖 **Complete instructions**: [.ai/instructions.md](../.ai/instructions.md)
 
----
-
-## Performance Optimization
-
-### Docker Compose
-- Use `depends_on` for startup order
-- Health checks for service readiness
-- Resource limits (memory, CPU)
-- Volume mounts for persistence
-
-### PostgreSQL
-- Connection pooling (max 20 connections)
-- Indexes on frequently queried fields
-- Regular VACUUM operations
-- Backup strategy (pg_dump daily)
-
-### Redis
-- Memory limit (maxmemory-policy: allkeys-lru)
-- Persistence (RDB + AOF)
-- Connection timeout (10s)
-- Key expiration for cache
-
-### ML Service
-- Model caching (Ollama pulls)
-- Request batching where possible
-- Async processing (non-blocking)
-- Circuit breaker for fallbacks
+Includes:
+- Detailed code style guidelines (JavaScript, Python, Docker)
+- Common pitfalls to avoid (rate limits, hardcoded keys, missing fallback)
+- Testing patterns (Jest, pytest)
+- Workflow architecture (n8n patterns)
+- Performance targets (87% success, 5.3s latency)
+- Environment variables reference
 
 ---
 
-## Deployment Checklist
-
-- [ ] All tests pass locally
-- [ ] `.env` configured with strong passwords
-- [ ] Docker images build successfully
-- [ ] Services start in correct order
-- [ ] Health checks passing
-- [ ] Monitoring dashboards accessible
-- [ ] Logs show no errors
-- [ ] Workflows import successfully
-- [ ] Test workflow executes
-- [ ] Metrics being collected
-
----
-
-## AI-Specific Notes
-
-### This Repository is AI-Optimized
-- Documentation reduced by 48%
-- Token-efficient structure
-- Signal-focused content
-- Clear 3-level navigation
-- Single source of truth
-- No redundancy
-
-### When Generating Code
-- Prefer minimal, focused functions
-- Use existing patterns from codebase
-- Add comments only for complex logic
-- Follow architecture guidelines above
-- Test thoroughly before committing
-
-### When Reviewing Code
-- Check for consistency with existing patterns
-- Verify tests are included
-- Ensure documentation is updated (if needed)
-- Validate no secrets are exposed
-- Confirm AI optimization maintained
-
----
-
-## Quick Reference
-
-**Start system:** `docker-compose up -d --build`  
-**Stop system:** `docker-compose down`  
-**View logs:** `docker-compose logs -f [service]`  
-**Run tests:** `.github/workflows/ci-test.yml`  
-**Access n8n:** http://localhost:5678  
-**Access Grafana:** http://localhost:3000  
-
-**Documentation:**  
-- Architecture: `README.md`
-- Quick start: `QUICKSTART.md`
-- AI guide: `AI_MANIFEST.md`
-- Technical docs: `docs/INDEX.md`
-- Optimization: `OPTIMIZATION_REPORT.md`
-
----
-
-**Status:** Production-Ready ✅ | AI-Optimized 🧠 | Fully Tested 🧪
+**AI-Optimized v2.0 🧠** | Production-Ready ✅ | Auto-Tested 🧪 | Token-Efficient 🚀
