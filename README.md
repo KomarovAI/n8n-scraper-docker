@@ -1,21 +1,26 @@
-# n8n-scraper-workflow: Docker Edition 🐳
+# n8n-scraper-docker: Production-Ready Docker Edition 🐳
 
-**Ветка `docker`** — очищенная, оптимизированная версия для **standalone Docker Compose запуска** на одном сервере или локально.
+[![CI/CD Tests](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml/badge.svg)](https://github.com/KomarovAI/n8n-scraper-docker/actions/workflows/ci-test.yml)
+[![Security](https://img.shields.io/badge/security-tested-green.svg)](https://github.com/KomarovAI/n8n-scraper-docker/security)
+[![Docker](https://img.shields.io/badge/docker-compose-blue.svg)](https://docs.docker.com/compose/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-✅ **Все Kubernetes-файлы удалены** (k8s/, manifests/, deploy-скрипты)  
-✅ **Избыточные документы удалены** (старые аудиты, .husky, .github)  
-✅ **Оставлено только необходимое** (docker-compose.yml, workflows, scrapers, monitoring)  
+**Очищенная, оптимизированная версия для standalone Docker Compose запуска на одном сервере или локально.**
+
+✅ **Все Kubernetes-файлы удалены**  
+✅ **Избыточные документы удалены**  
+✅ **Автоматическое тестирование** (CI/CD)  
+✅ **Полный мониторинг** (Prometheus + Grafana)  
 
 ---
 
 ## 🚀 Быстрый старт
 
-### 1️⃣ Клонирование и переключение на ветку docker
+### 1️⃣ Клонирование
 
 ```bash
-git clone https://github.com/KomarovAI/n8n-scraper-workflow.git
-cd n8n-scraper-workflow
-git checkout docker
+git clone https://github.com/KomarovAI/n8n-scraper-docker.git
+cd n8n-scraper-docker
 ```
 
 ### 2️⃣ Настройка переменных окружения
@@ -28,7 +33,7 @@ cp .env.example .env
 openssl rand -base64 24
 
 # Отредактируйте .env и замените все CHANGE_ME_* на сгенерированные пароли
-nano .env  # или vim, code, любой редактор
+nano .env  # или vim, code
 ```
 
 **Критически важно:**
@@ -68,11 +73,42 @@ docker-compose ps
 
 ---
 
+## 🧪 **АВТОМАТИЧЕСКОЕ ТЕСТИРОВАНИЕ**
+
+Проект включает **comprehensive CI/CD test suite**, который автоматически запускается при каждом push и pull request:
+
+### **6 типов тестов:**
+
+✅ **Lint & Validation** — docker-compose.yml, Dockerfile, shell scripts  
+✅ **Security Scan** — Trivy vulnerability scanner + TruffleHog secret detection  
+✅ **Docker Build** — сборка образов и проверка размера  
+✅ **Health Checks** — PostgreSQL, Redis, Prometheus, Grafana  
+✅ **Integration Tests** — connectivity, data persistence, exporters  
+✅ **Test Summary** — финальный отчёт  
+
+**Подробнее:** [🧪 TESTING.md](TESTING.md)
+
+---
+
+## 📊 **МОНИТОРИНГ**
+
+Полностью настроенный monitoring stack:
+
+- 📊 **Prometheus** (localhost:9090) — сбор метрик
+- 📈 **Grafana** (localhost:3000) — визуализация
+- 💻 **Node Exporter** — системные метрики (CPU, RAM, Disk)
+- 🟥 **Redis Exporter** — Redis метрики
+- 🔵 **PostgreSQL Exporter** — DB метрики
+
+**Подробнее:** [📊 MONITORING_SETUP.md](MONITORING_SETUP.md)
+
+---
+
 ## 📦 Что входит в стек
 
 ### Основные сервисы:
 
-1. **n8n** (порт 5678) — автоматизация workflow'ов, оркестрация scraping
+1. **n8n** (5678) — автоматизация workflow'ов, оркестрация scraping
 2. **PostgreSQL** (5432) — основная БД для хранения данных
 3. **Redis** (6379) — rate limiting, кэширование, очереди
 4. **Tor Proxy** (9050) — анонимность и IP rotation
@@ -122,10 +158,8 @@ docker-compose up -d --build
 
 ## 📊 Production метрики
 
-Ветка docker сохраняет все production-фичи из main:
-
 | Метрика | Значение |
-|---------|----------|
+|---------|---------|
 | **Success Rate** | 87% |
 | **Avg Latency** | 5.3s |
 | **Cost per 1000 URLs** | $2.88 |
@@ -143,13 +177,15 @@ docker-compose up -d --build
 
 ## 📚 Документация
 
-### Важные документы в ветке docker:
+### Важные документы:
 
-- **[README-docker.md](README-docker.md)** — детальная инструкция Docker Compose
-- **[PRODUCTION_FIXES_V3.md](PRODUCTION_FIXES_V3.md)** — все 15 production-исправлений
-- **[AUDIT_REPORT_FINAL.md](AUDIT_REPORT_FINAL.md)** — финальный аудит (4.9/5.0)
-- **[SECURITY.md](SECURITY.md)** — руководство по безопасности
-- **[DYNAMIC_RUNNERS.md](DYNAMIC_RUNNERS.md)** — документация по scraper'ам
+- **[🚀 README-docker.md](README-docker.md)** — детальная инструкция Docker Compose
+- **[🧪 TESTING.md](TESTING.md)** — полная документация по тестированию
+- **[📊 MONITORING_SETUP.md](MONITORING_SETUP.md)** — настройка мониторинга
+- **[🔧 PRODUCTION_FIXES_V3.md](PRODUCTION_FIXES_V3.md)** — все 15 production-исправлений
+- **[📊 AUDIT_REPORT_FINAL.md](AUDIT_REPORT_FINAL.md)** — финальный аудит (4.95/5.0)
+- **[🔒 SECURITY.md](SECURITY.md)** — руководство по безопасности
+- **[🐜 DYNAMIC_RUNNERS.md](DYNAMIC_RUNNERS.md)** — документация по scraper'ам
 - **[docs/](docs/)** — техническая документация
 
 ---
@@ -193,25 +229,6 @@ sudo ufw enable
 
 ---
 
-## 🔄 Миграция с Kubernetes
-
-Если вы использовали ветку `main` с Kubernetes:
-
-1. **Экспорт данных** из K8s PostgreSQL
-2. **Переключитесь** на ветку docker
-3. **Запустите** Docker Compose
-4. **Импорт данных** в Docker PostgreSQL
-
-```bash
-# K8s export
-kubectl exec -n n8n-scraper n8n-scraper-0 -- pg_dump -U scraper_user scraper_db > backup.sql
-
-# Docker import
-docker-compose exec postgres psql -U scraper_user scraper_db < backup.sql
-```
-
----
-
 ## ❓ FAQ
 
 ### Q: Можно отключить ML сервис или Ollama?
@@ -221,7 +238,7 @@ A: Да! Откомментируйте соответствующие секц�
 A: Измените переменные в .env на внешние хосты, отключите локальные контейнеры.
 
 ### Q: Как обновить на новую версию?
-A: `git pull origin docker && docker-compose up -d --build`
+A: `git pull origin main && docker-compose up -d --build`
 
 ### Q: Где хранятся данные?
 A: Docker volumes: `postgres-data`, `redis-data`, `n8n-data`, `grafana-data`, `prometheus-data`
@@ -245,10 +262,10 @@ A: `docker-compose exec postgres pg_dump -U scraper_user scraper_db > backup_$(d
 
 - [🐳 Docker Hub - n8n](https://hub.docker.com/r/n8nio/n8n)
 - [📚 n8n Documentation](https://docs.n8n.io/)
-- [🌐 GitHub Repository](https://github.com/KomarovAI/n8n-scraper-workflow)
-- [🆚 Main Branch (Kubernetes)](https://github.com/KomarovAI/n8n-scraper-workflow/tree/main)
+- [🌐 GitHub Repository](https://github.com/KomarovAI/n8n-scraper-docker)
+- [🛠️ GitHub Actions](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 
 ---
 
 **Built with ❤️ by KomarovAI**  
-**Production-Ready ✅ | Docker-Optimized 🐳 | Cost-Efficient 💰**
+**Production-Ready ✅ | Docker-Optimized 🐳 | Auto-Tested 🧪 | Fully Monitored 📊**
