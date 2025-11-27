@@ -1,0 +1,95 @@
+{
+  "name": "Parent Workflow - Subworkflow Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare data for child workflow\nreturn {\n  json: {\n    a: 10,\n    b: 5,\n    operation: 'calculate'\n  }\n};"
+      },
+      "id": "prepare-node",
+      "name": "Prepare Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "mode": "id",
+        "workflowId": "CHILD_WORKFLOW_ID_PLACEHOLDER"
+      },
+      "id": "execute-child",
+      "name": "Execute Child Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate child workflow output\nconst result = $input.first().json;\n\nif (result.sum !== 15) {\n  throw new Error('Sum calculation incorrect');\n}\n\nif (result.product !== 50) {\n  throw new Error('Product calculation incorrect');\n}\n\nif (result.difference !== 5) {\n  throw new Error('Difference calculation incorrect');\n}\n\nreturn {\n  json: {\n    status: 'success',\n    message: 'Subworkflow executed and validated successfully',\n    childResult: result,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "validate-node",
+      "name": "Validate Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Data": {
+      "main": [
+        [
+          {
+            "node": "Execute Child Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Child Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "parent-v1",
+  "meta": {
+    "instanceId": "test"
+  },
+  "tags": [
+    {
+      "name": "test"
+    },
+    {
+      "name": "subworkflow"
+    }
+  ]
+}
