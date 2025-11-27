@@ -427,10 +427,12 @@ CTRF_EOF
       - name: Generate Failed Tests Detailed Report
         if: steps.results.outputs.failed != '0'
         run: |
-          cat > unified-report/failed-tests-detailed.json << 'FAILED_EOF'
+          CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          cat > unified-report/failed-tests-detailed.json << FAILED_EOF
 {
   "metadata": {
-    "generated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+    "generated_at": "${CURRENT_TIME}",
     "workflow_run": "${{ github.run_id }}",
     "commit": "${{ github.sha }}",
     "success_rate": ${{ steps.results.outputs.success_rate }}
@@ -483,6 +485,7 @@ METRICS_EOF
         run: |
           COMMIT_MESSAGE=$(git log -1 --pretty=%B | head -n1 | sed 's/"/\\"/g' | tr -d '\n')
           DOCKER_VERSION=$(docker --version | cut -d' ' -f3 | tr -d ',')
+          COMMIT_TIMESTAMP=$(git log -1 --pretty=%cI)
           
           cat > unified-report/metadata.json << METADATA_EOF
 {
@@ -500,7 +503,7 @@ METRICS_EOF
       "sha": "${{ github.sha }}",
       "message": "${COMMIT_MESSAGE}",
       "author": "${{ github.actor }}",
-      "timestamp": "$(git log -1 --pretty=%cI)"
+      "timestamp": "${COMMIT_TIMESTAMP}"
     }
   },
   "environment": {
@@ -517,7 +520,9 @@ METADATA_EOF
       
       - name: Generate AI-Ready Summary
         run: |
-          cat > unified-report/ai-ready-summary.md << 'SUMMARY_EOF'
+          CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          cat > unified-report/ai-ready-summary.md << SUMMARY_EOF
 # CI/CD Test Results - AI Analysis Report
 
 ## 📊 Executive Summary
@@ -528,7 +533,7 @@ METADATA_EOF
 - **Workflow Run**: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 - **Commit**: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
 - **Branch**: ${{ github.ref_name }}
-- **Timestamp**: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+- **Timestamp**: ${CURRENT_TIME}
 
 ## ✅ Test Results
 
@@ -557,12 +562,12 @@ Identify recurring failure patterns across test categories.
 
 ## 📦 Files Included
 
-- `ctrf-report.json` - CTRF standard (300+ AI models compatible)
-- `failed-tests-detailed.json` - AI-optimized error data
-- `metadata.json` - Build context
-- `metrics.json` - Performance metrics
-- `ai-ready-summary.md` - This summary
-- `logs/` - Full job logs
+- \`ctrf-report.json\` - CTRF standard (300+ AI models compatible)
+- \`failed-tests-detailed.json\` - AI-optimized error data
+- \`metadata.json\` - Build context
+- \`metrics.json\` - Performance metrics
+- \`ai-ready-summary.md\` - This summary
+- \`logs/\` - Full job logs
 
 ## 🎯 AI Model Compatibility
 
@@ -572,9 +577,9 @@ Identify recurring failure patterns across test categories.
 ✅ 300+ CTRF-compatible models
 
 **Usage:**
-1. Download `unified-test-report-${{ github.run_number }}.zip`
+1. Download \`unified-test-report-${{ github.run_number }}.zip\`
 2. Extract files
-3. Upload `ctrf-report.json` + `failed-tests-detailed.json` to AI
+3. Upload \`ctrf-report.json\` + \`failed-tests-detailed.json\` to AI
 4. Use prompts above for instant analysis
 SUMMARY_EOF
           echo "✅ AI-ready summary generated"
@@ -613,15 +618,15 @@ SUMMARY_EOF
 
 ## 📦 Unified AI-Optimized Report
 
-Download: `unified-test-report-${{ github.run_number }}`
+Download: \`unified-test-report-${{ github.run_number }}\`
 
 ### Contents:
-- ✅ `ctrf-report.json` - CTRF standard (300+ AI models)
-- ✅ `ai-ready-summary.md` - Human-readable overview
-- ✅ `failed-tests-detailed.json` - Structured error data
-- ✅ `logs/` - Individual job logs
-- ✅ `metrics.json` - Performance metrics
-- ✅ `metadata.json` - Build context
+- ✅ \`ctrf-report.json\` - CTRF standard (300+ AI models)
+- ✅ \`ai-ready-summary.md\` - Human-readable overview
+- ✅ \`failed-tests-detailed.json\` - Structured error data
+- ✅ \`logs/\` - Individual job logs
+- ✅ \`metrics.json\` - Performance metrics
+- ✅ \`metadata.json\` - Build context
 
 ### 🤖 AI Analysis Ready
 
