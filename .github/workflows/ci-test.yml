@@ -307,6 +307,39 @@ jobs:
           echo "📁 Created unified-report directory structure"
       
       - name: Generate Enhanced CTRF Report
+        env:
+          TESTS_TOTAL: ${{ steps.results.outputs.total }}
+          TESTS_PASSED: ${{ steps.results.outputs.passed }}
+          TESTS_FAILED: ${{ steps.results.outputs.failed }}
+          WORKFLOW_RUN_NUMBER: ${{ github.run_number }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          REPO_BRANCH: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          VALIDATE_STATUS: ${{ needs.validate-compose.result == 'success' && 'passed' || 'failed' }}
+          VALIDATE_MESSAGE: ${{ needs.validate-compose.result != 'success' && 'docker-compose.yml validation failed' || '' }}
+          VALIDATE_TRACE: ${{ needs.validate-compose.result != 'success' && 'Check logs/validate-compose.log for details' || '' }}
+          VALIDATE_EXIT: ${{ needs.validate-compose.result == 'success' && '0' || '1' }}
+          LINT_STATUS: ${{ needs.lint-dockerfiles.result == 'success' && 'passed' || 'failed' }}
+          LINT_MESSAGE: ${{ needs.lint-dockerfiles.result != 'success' && 'Hadolint found issues in Dockerfiles' || '' }}
+          LINT_TRACE: ${{ needs.lint-dockerfiles.result != 'success' && 'Check logs/lint-dockerfiles.log' || '' }}
+          LINT_EXIT: ${{ needs.lint-dockerfiles.result == 'success' && '0' || '1' }}
+          SHELL_STATUS: ${{ needs.check-shell-scripts.result == 'success' && 'passed' || 'failed' }}
+          SHELL_MESSAGE: ${{ needs.check-shell-scripts.result != 'success' && 'ShellCheck detected issues' || '' }}
+          SHELL_TRACE: ${{ needs.check-shell-scripts.result != 'success' && 'Check logs/check-shell-scripts.log' || '' }}
+          SHELL_EXIT: ${{ needs.check-shell-scripts.result == 'success' && '0' || '1' }}
+          TRIVY_STATUS: ${{ needs.trivy-scan.result == 'success' && 'passed' || 'failed' }}
+          TRIVY_MESSAGE: ${{ needs.trivy-scan.result != 'success' && 'Trivy found CRITICAL or HIGH vulnerabilities' || '' }}
+          TRIVY_TRACE: ${{ needs.trivy-scan.result != 'success' && 'Check logs/trivy-scan.log and SARIF report' || '' }}
+          TRIVY_EXIT: ${{ needs.trivy-scan.result == 'success' && '0' || '1' }}
+          SECRET_STATUS: ${{ needs.secret-scan.result == 'success' && 'passed' || 'failed' }}
+          SECRET_MESSAGE: ${{ needs.secret-scan.result != 'success' && 'TruffleHog detected potential secrets' || '' }}
+          SECRET_TRACE: ${{ needs.secret-scan.result != 'success' && 'Check logs/secret-scan.log' || '' }}
+          SECRET_EXIT: ${{ needs.secret-scan.result == 'success' && '0' || '1' }}
+          BUILD_STATUS: ${{ needs.build-n8n.result == 'success' && 'passed' || 'failed' }}
+          BUILD_MESSAGE: ${{ needs.build-n8n.result != 'success' && 'Docker build failed for n8n-enhanced image' || '' }}
+          BUILD_TRACE: ${{ needs.build-n8n.result != 'success' && 'Check logs/build-n8n.log for build errors' || '' }}
+          BUILD_EXIT: ${{ needs.build-n8n.result == 'success' && '0' || '1' }}
         run: |
           START_TIME=$(date -d '10 minutes ago' +%s)000
           STOP_TIME=$(date +%s)000
@@ -320,107 +353,139 @@ jobs:
       "version": "1.0.0"
     },
     "summary": {
-      "tests": ${{ steps.results.outputs.total }},
-      "passed": ${{ steps.results.outputs.passed }},
-      "failed": ${{ steps.results.outputs.failed }},
+      "tests": TESTS_TOTAL_PH,
+      "passed": TESTS_PASSED_PH,
+      "failed": TESTS_FAILED_PH,
       "pending": 0,
       "skipped": 0,
       "other": 0,
-      "start": START_TIME_PLACEHOLDER,
-      "stop": STOP_TIME_PLACEHOLDER,
-      "duration": DURATION_PLACEHOLDER
+      "start": START_TIME_PH,
+      "stop": STOP_TIME_PH,
+      "duration": DURATION_PH
     },
     "tests": [
       {
         "name": "Docker Compose Validation",
-        "status": "${{ needs.validate-compose.result == 'success' && 'passed' || 'failed' }}",
+        "status": "VALIDATE_STATUS_PH",
         "duration": 5000,
-        "message": "${{ needs.validate-compose.result != 'success' && 'docker-compose.yml validation failed' || '' }}",
-        "trace": "${{ needs.validate-compose.result != 'success' && 'Check logs/validate-compose.log for details' || '' }}",
+        "message": "VALIDATE_MESSAGE_PH",
+        "trace": "VALIDATE_TRACE_PH",
         "extra": {
           "job_id": "validate-compose",
-          "exit_code": "${{ needs.validate-compose.result == 'success' && '0' || '1' }}",
+          "exit_code": "VALIDATE_EXIT_PH",
           "log_file": "logs/validate-compose.log"
         }
       },
       {
         "name": "Dockerfile Linting",
-        "status": "${{ needs.lint-dockerfiles.result == 'success' && 'passed' || 'failed' }}",
+        "status": "LINT_STATUS_PH",
         "duration": 10000,
-        "message": "${{ needs.lint-dockerfiles.result != 'success' && 'Hadolint found issues in Dockerfiles' || '' }}",
-        "trace": "${{ needs.lint-dockerfiles.result != 'success' && 'Check logs/lint-dockerfiles.log' || '' }}",
+        "message": "LINT_MESSAGE_PH",
+        "trace": "LINT_TRACE_PH",
         "extra": {
           "job_id": "lint-dockerfiles",
-          "exit_code": "${{ needs.lint-dockerfiles.result == 'success' && '0' || '1' }}",
+          "exit_code": "LINT_EXIT_PH",
           "log_file": "logs/lint-dockerfiles.log"
         }
       },
       {
         "name": "Shell Script Checks",
-        "status": "${{ needs.check-shell-scripts.result == 'success' && 'passed' || 'failed' }}",
+        "status": "SHELL_STATUS_PH",
         "duration": 8000,
-        "message": "${{ needs.check-shell-scripts.result != 'success' && 'ShellCheck detected issues' || '' }}",
-        "trace": "${{ needs.check-shell-scripts.result != 'success' && 'Check logs/check-shell-scripts.log' || '' }}",
+        "message": "SHELL_MESSAGE_PH",
+        "trace": "SHELL_TRACE_PH",
         "extra": {
           "job_id": "check-shell-scripts",
-          "exit_code": "${{ needs.check-shell-scripts.result == 'success' && '0' || '1' }}",
+          "exit_code": "SHELL_EXIT_PH",
           "log_file": "logs/check-shell-scripts.log"
         }
       },
       {
         "name": "Security Scan (Trivy)",
-        "status": "${{ needs.trivy-scan.result == 'success' && 'passed' || 'failed' }}",
+        "status": "TRIVY_STATUS_PH",
         "duration": 30000,
-        "message": "${{ needs.trivy-scan.result != 'success' && 'Trivy found CRITICAL or HIGH vulnerabilities' || '' }}",
-        "trace": "${{ needs.trivy-scan.result != 'success' && 'Check logs/trivy-scan.log and SARIF report' || '' }}",
+        "message": "TRIVY_MESSAGE_PH",
+        "trace": "TRIVY_TRACE_PH",
         "extra": {
           "job_id": "trivy-scan",
-          "exit_code": "${{ needs.trivy-scan.result == 'success' && '0' || '1' }}",
+          "exit_code": "TRIVY_EXIT_PH",
           "log_file": "logs/trivy-scan.log"
         }
       },
       {
         "name": "Secret Detection",
-        "status": "${{ needs.secret-scan.result == 'success' && 'passed' || 'failed' }}",
+        "status": "SECRET_STATUS_PH",
         "duration": 15000,
-        "message": "${{ needs.secret-scan.result != 'success' && 'TruffleHog detected potential secrets' || '' }}",
-        "trace": "${{ needs.secret-scan.result != 'success' && 'Check logs/secret-scan.log' || '' }}",
+        "message": "SECRET_MESSAGE_PH",
+        "trace": "SECRET_TRACE_PH",
         "extra": {
           "job_id": "secret-scan",
-          "exit_code": "${{ needs.secret-scan.result == 'success' && '0' || '1' }}",
+          "exit_code": "SECRET_EXIT_PH",
           "log_file": "logs/secret-scan.log"
         }
       },
       {
         "name": "Build n8n-enhanced",
-        "status": "${{ needs.build-n8n.result == 'success' && 'passed' || 'failed' }}",
+        "status": "BUILD_STATUS_PH",
         "duration": 120000,
-        "message": "${{ needs.build-n8n.result != 'success' && 'Docker build failed for n8n-enhanced image' || '' }}",
-        "trace": "${{ needs.build-n8n.result != 'success' && 'Check logs/build-n8n.log for build errors' || '' }}",
+        "message": "BUILD_MESSAGE_PH",
+        "trace": "BUILD_TRACE_PH",
         "extra": {
           "job_id": "build-n8n",
-          "exit_code": "${{ needs.build-n8n.result == 'success' && '0' || '1' }}",
+          "exit_code": "BUILD_EXIT_PH",
           "log_file": "logs/build-n8n.log"
         }
       }
     ],
     "environment": {
       "appName": "n8n-scraper-docker",
-      "buildName": "${{ github.run_number }}",
-      "buildNumber": "${{ github.run_id }}",
-      "buildUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-      "repositoryName": "${{ github.repository }}",
-      "repositoryUrl": "https://github.com/${{ github.repository }}",
-      "branchName": "${{ github.ref_name }}",
-      "commitHash": "${{ github.sha }}"
+      "buildName": "WORKFLOW_RUN_NUMBER_PH",
+      "buildNumber": "WORKFLOW_RUN_ID_PH",
+      "buildUrl": "https://github.com/REPO_NAME_PH/actions/runs/WORKFLOW_RUN_ID_PH",
+      "repositoryName": "REPO_NAME_PH",
+      "repositoryUrl": "https://github.com/REPO_NAME_PH",
+      "branchName": "REPO_BRANCH_PH",
+      "commitHash": "COMMIT_SHA_PH"
     }
   }
 }
 CTRF_EOF
           
-          sed -i "s/START_TIME_PLACEHOLDER/$START_TIME/g" unified-report/ctrf-report.json
-          sed -i "s/STOP_TIME_PLACEHOLDER/$STOP_TIME/g" unified-report/ctrf-report.json
-          sed -i "s/DURATION_PLACEHOLDER/$DURATION/g" unified-report/ctrf-report.json
+          sed -i "s/START_TIME_PH/$START_TIME/g" unified-report/ctrf-report.json
+          sed -i "s/STOP_TIME_PH/$STOP_TIME/g" unified-report/ctrf-report.json
+          sed -i "s/DURATION_PH/$DURATION/g" unified-report/ctrf-report.json
+          sed -i "s/TESTS_TOTAL_PH/$TESTS_TOTAL/g" unified-report/ctrf-report.json
+          sed -i "s/TESTS_PASSED_PH/$TESTS_PASSED/g" unified-report/ctrf-report.json
+          sed -i "s/TESTS_FAILED_PH/$TESTS_FAILED/g" unified-report/ctrf-report.json
+          sed -i "s/WORKFLOW_RUN_NUMBER_PH/$WORKFLOW_RUN_NUMBER/g" unified-report/ctrf-report.json
+          sed -i "s/WORKFLOW_RUN_ID_PH/$WORKFLOW_RUN_ID/g" unified-report/ctrf-report.json
+          sed -i "s|REPO_NAME_PH|$REPO_NAME|g" unified-report/ctrf-report.json
+          sed -i "s/REPO_BRANCH_PH/$REPO_BRANCH/g" unified-report/ctrf-report.json
+          sed -i "s/COMMIT_SHA_PH/$COMMIT_SHA/g" unified-report/ctrf-report.json
+          sed -i "s/VALIDATE_STATUS_PH/$VALIDATE_STATUS/g" unified-report/ctrf-report.json
+          sed -i "s/VALIDATE_MESSAGE_PH/$VALIDATE_MESSAGE/g" unified-report/ctrf-report.json
+          sed -i "s/VALIDATE_TRACE_PH/$VALIDATE_TRACE/g" unified-report/ctrf-report.json
+          sed -i "s/VALIDATE_EXIT_PH/$VALIDATE_EXIT/g" unified-report/ctrf-report.json
+          sed -i "s/LINT_STATUS_PH/$LINT_STATUS/g" unified-report/ctrf-report.json
+          sed -i "s/LINT_MESSAGE_PH/$LINT_MESSAGE/g" unified-report/ctrf-report.json
+          sed -i "s/LINT_TRACE_PH/$LINT_TRACE/g" unified-report/ctrf-report.json
+          sed -i "s/LINT_EXIT_PH/$LINT_EXIT/g" unified-report/ctrf-report.json
+          sed -i "s/SHELL_STATUS_PH/$SHELL_STATUS/g" unified-report/ctrf-report.json
+          sed -i "s/SHELL_MESSAGE_PH/$SHELL_MESSAGE/g" unified-report/ctrf-report.json
+          sed -i "s/SHELL_TRACE_PH/$SHELL_TRACE/g" unified-report/ctrf-report.json
+          sed -i "s/SHELL_EXIT_PH/$SHELL_EXIT/g" unified-report/ctrf-report.json
+          sed -i "s/TRIVY_STATUS_PH/$TRIVY_STATUS/g" unified-report/ctrf-report.json
+          sed -i "s/TRIVY_MESSAGE_PH/$TRIVY_MESSAGE/g" unified-report/ctrf-report.json
+          sed -i "s/TRIVY_TRACE_PH/$TRIVY_TRACE/g" unified-report/ctrf-report.json
+          sed -i "s/TRIVY_EXIT_PH/$TRIVY_EXIT/g" unified-report/ctrf-report.json
+          sed -i "s/SECRET_STATUS_PH/$SECRET_STATUS/g" unified-report/ctrf-report.json
+          sed -i "s/SECRET_MESSAGE_PH/$SECRET_MESSAGE/g" unified-report/ctrf-report.json
+          sed -i "s/SECRET_TRACE_PH/$SECRET_TRACE/g" unified-report/ctrf-report.json
+          sed -i "s/SECRET_EXIT_PH/$SECRET_EXIT/g" unified-report/ctrf-report.json
+          sed -i "s/BUILD_STATUS_PH/$BUILD_STATUS/g" unified-report/ctrf-report.json
+          sed -i "s/BUILD_MESSAGE_PH/$BUILD_MESSAGE/g" unified-report/ctrf-report.json
+          sed -i "s/BUILD_TRACE_PH/$BUILD_TRACE/g" unified-report/ctrf-report.json
+          sed -i "s/BUILD_EXIT_PH/$BUILD_EXIT/g" unified-report/ctrf-report.json
           
           echo "✅ CTRF report generated"
       
