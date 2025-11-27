@@ -25,7 +25,7 @@ test-summary (1 runner)
 Общее время: ~18 мин (последовательно)
 ```
 
-### **СТАЛО (13 jobs + matrix):**
+### **СТАЛО (16 jobs + matrix):**
 ```
 ┌──────────────────────────────────────────────────────┐
 │  🚀 Волна 1 (ПАРАЛЛЕЛЬНО - 8 runners)                    │
@@ -42,27 +42,36 @@ test-summary (1 runner)
          ↓ Завершаются через 4 мин (max)
          ↓
 ┌──────────────────────────────────────────────────────┐
-│  🚀 Волна 2 (ПАРАЛЛЕЛЬНО - 5 runners)                    │
+│  🚀 Волна 1.5 (ПАРАЛЛЕЛЬНО - 1 runner) ⭐             │
 ├──────────────────────────────────────────────────────┤
-│  9. health-check (3 min)                              │
-│  10. integration-test (4 min)                         │
-│  11. test-configurations [minimal] (2 min)            │
-│  12. test-configurations [monitoring] (3 min)         │
-│  13. n8n-e2e-test (3 min) ⭐ НОВЫЙ!                  │
+│  9. smoke-test (1 min) 🔥 НОВЫЙ!                  │
+└──────────────────────────────────────────────────────┘
+         ↓ Завершается через 1 мин
+         ↓
+┌──────────────────────────────────────────────────────┐
+│  🚀 Волна 2 (ПАРАЛЛЕЛЬНО - 7 runners)                    │
+├──────────────────────────────────────────────────────┤
+│  10. health-check (3 min)                             │
+│  11. integration-test (4 min)                         │
+│  12. test-configurations [minimal] (2 min)            │
+│  13. test-configurations [monitoring] (3 min)         │
+│  14. n8n-e2e-test (3 min)                             │
+│  15. test-webhooks (1 min) 🔗 НОВЫЙ!              │
+│  16. test-subworkflows (2 min) 🔗 НОВЫЙ!         │
 └──────────────────────────────────────────────────────┘
          ↓ Завершаются через 4 мин (max)
          ↓
 ┌──────────────────────────────────────────────────────┐
 │  🚀 Волна 3 (1 runner)                                   │
 ├──────────────────────────────────────────────────────┤
-│  14. test-summary (1 min)                             │
+│  17. test-summary (1 min)                             │
 └──────────────────────────────────────────────────────┘
 
 **Общее время: ~9 минут** (было 18 мин) = **-50% времени!** 🚀
 
 ---
 
-## 📊 **13 ТИПОВ ТЕСТОВ**
+## 📊 **16 ТИПОВ ТЕСТОВ**
 
 ### **Волна 1: Fast Checks (8 runners параллельно)**
 
@@ -81,15 +90,33 @@ test-summary (1 runner)
 
 ---
 
-### **Волна 2: Service Tests (5 runners параллельно)**
+### **Волна 1.5: Smoke Test (1 runner) ⭐ НОВОЕ!**
 
 | # | Job | Время | Что проверяет |
 |---|-----|--------|---------------|
-| 9 | **health-check** | 3 min | PostgreSQL, Redis, Prometheus, Grafana, Exporters |
-| 10 | **integration-test** | 4 min | Connectivity, persistence, exporters |
-| 11 | **test-config [minimal]** | 2 min | Минимальная конфигурация (postgres+redis) |
-| 12 | **test-config [monitoring]** | 3 min | Конфигурация с мониторингом |
-| 13 | **n8n-e2e-test** ⭐ | 3 min | n8n workflow import/execute/validate |
+| 9 | **smoke-test** 🔥 | 1 min | Container stability, packaging bugs, immediate crashes |
+
+**Проверяет:**
+- ✅ Контейнеры **запускаются** без immediate crashes
+- ✅ **Остаются живыми** 30+ секунд
+- ✅ Нет **fatal errors** в логах
+- ✅ Dependencies **загружаются**
+
+**Подробнее:** [tests/smoke/README.md](tests/smoke/README.md)
+
+---
+
+### **Волна 2: Service Tests (7 runners параллельно)**
+
+| # | Job | Время | Что проверяет |
+|---|-----|--------|---------------|
+| 10 | **health-check** | 3 min | PostgreSQL, Redis, Prometheus, Grafana, Exporters |
+| 11 | **integration-test** | 4 min | Connectivity, persistence, exporters |
+| 12 | **test-config [minimal]** | 2 min | Минимальная конфигурация (postgres+redis) |
+| 13 | **test-config [monitoring]** | 3 min | Конфигурация с мониторингом |
+| 14 | **n8n-e2e-test** | 3 min | n8n workflow import/execute/validate |
+| 15 | **test-webhooks** 🔗 | 1 min | Webhook endpoints, activation, payload processing |
+| 16 | **test-subworkflows** 🔗 | 2 min | Execute Workflow node, data passing, validation |
 
 **Max время волны 2:** 4 мин (integration-test)
 
@@ -99,27 +126,54 @@ test-summary (1 runner)
 
 | # | Job | Время | Что делает |
 |---|-----|--------|-------------|
-| 14 | **test-summary** | 1 min | Финальный отчёт, проверка всех результатов |
+| 17 | **test-summary** | 1 min | Финальный отчёт, проверка всех результатов |
 
 ---
 
-## 🎉 **НОВЫЙ: n8n Workflow E2E Test**
+## 🎉 **НОВЫЕ ТЕСТЫ (+3)**
 
-### **Что проверяет:**
+### **1. 🔥 Smoke Test**
 
-✅ **n8n Authentication** — логин через REST API  
-✅ **Workflow Import** — импорт test-workflow.json  
-✅ **Workflow Execution** — выполнение workflow  
-✅ **Status Validation** — проверка finished = true  
-✅ **Output Validation** — проверка выходных данных  
-✅ **Cleanup** — удаление тестового workflow  
+**Первая линия защиты от packaging bugs!**
 
-**Файлы:**
-- `tests/n8n/test-workflow.json` — тестовый workflow
-- `tests/n8n/e2e-test.sh` — bash script для тестирования
-- `tests/n8n/README.md` — полная документация
+Ловит 80% packaging bugs:
+- ❌ Missing dependencies в Dockerfile
+- ❌ Syntax errors в entrypoint scripts
+- ❌ Permission issues
+- ❌ Immediate crashes
 
-**Подробнее:** [tests/n8n/README.md](tests/n8n/README.md)
+**Файлы:** `tests/smoke/smoke-test.sh`, `tests/smoke/README.md`  
+**Подробнее:** [tests/smoke/README.md](tests/smoke/README.md)
+
+---
+
+### **2. 🔗 Webhook Test**
+
+**Проверяет entry points n8n automations!**
+
+Гарантирует:
+- ✅ Webhook endpoints **доступны**
+- ✅ Workflow activation **работает**
+- ✅ Payload **принимается** и обрабатывается
+- ✅ Response **возвращается** корректно
+
+**Файлы:** `tests/webhooks/test-webhook.json`, `tests/webhooks/test-webhooks.sh`, `tests/webhooks/README.md`  
+**Подробнее:** [tests/webhooks/README.md](tests/webhooks/README.md)
+
+---
+
+### **3. 🔗 Subworkflow Test**
+
+**Unit tests для n8n workflows!**
+
+Проверяет:
+- ✅ Execute Workflow node **работает**
+- ✅ Data **передаётся** между workflows
+- ✅ Child workflow **выполняется**
+- ✅ Results **возвращаются** в parent
+
+**Файлы:** `tests/subworkflows/child-workflow.json`, `tests/subworkflows/parent-workflow.json`, `tests/subworkflows/test-subworkflows.sh`, `tests/subworkflows/README.md`  
+**Подробнее:** [tests/subworkflows/README.md](tests/subworkflows/README.md)
 
 ---
 
@@ -127,317 +181,17 @@ test-summary (1 runner)
 
 | Параметр | ДО оптимизации | ПОСЛЕ оптимизации |
 |----------|-------------------|--------------------|
-| **Кол-во jobs** | 6 | **13** (+7) |
+| **Кол-во jobs** | 6 | **16** (+10) |
 | **Max runners одновременно** | 1 | **8** (+7) |
 | **Общее время** | 18 мин | **9 мин** (-50%) |
 | **Параллелизм** | Последовательно | **3 волны** |
 | **Docker cache** | Нет | **Есть** (GHA cache) |
 | **Matrix strategy** | Нет | **Есть** (2 configs) |
 | **Retry logic** | Нет | **Есть** (health checks) |
-| **n8n E2E testing** | Нет | **Есть** ⭐ |
-
----
-
-## 🔥 **КЛЮЧЕВЫЕ ОПТИМИЗАЦИИ**
-
-### **1. Максимальный параллелизм** ✅
-
-```yaml
-# БЫЛО: последовательные needs:
-jobs:
-  lint:
-    ...
-  security-scan:
-    needs: [lint]  # Ждёт lint
-  docker-build:
-    needs: [security-scan]  # Ждёт security
-
-# СТАЛО: минимальные зависимости:
-jobs:
-  validate-compose:  # Независимый
-  lint-dockerfiles:  # Независимый
-  trivy-scan:        # Независимый
-  build-n8n:         # Независимый
-  # Все запускаются ОДНОВРЕМЕННО!
-```
-
-### **2. Docker Build Cache** ✅
-
-```yaml
-# GHA cache для ускорения сборки:
-uses: docker/build-push-action@v5
-with:
-  cache-from: type=gha
-  cache-to: type=gha,mode=max
-```
-
-**Результат:**
-- Первый build: 4 мин
-- Последующие: **30 сек** (-87%!)
-
-### **3. Matrix Strategy** ✅
-
-```yaml
-strategy:
-  fail-fast: false
-  matrix:
-    config: [minimal, monitoring]
-```
-
-**Результат:**
-- 2 конфигурации тестируются **одновременно**
-- `fail-fast: false` = все тесты завершаются
-
-### **4. Smart Retry Logic** ✅
-
-```bash
-# Health checks с retry:
-for i in {1..30}; do
-  if curl -f http://localhost:9090/-/healthy; then
-    echo "✅ Success"
-    exit 0
-  fi
-  sleep 2
-done
-```
-
-**Результат:** Меньше false negatives
-
-### **5. n8n E2E Testing** ✅ ⭐ **НОВОЕ!**
-
-```bash
-# Полный цикл тестирования n8n:
-1. Authentication через API
-2. Import workflow (test-workflow.json)
-3. Execute workflow
-4. Wait for completion
-5. Validate output data
-6. Cleanup (delete workflow)
-```
-
-**Результат:**
-- Гарантирует работоспособность n8n core
-- Проверяет HTTP Request и Code ноды
-- Валидирует workflow execution engine
-
-**Подробнее:** [tests/n8n/README.md](tests/n8n/README.md)
-
----
-
-## ⏱️ **TIMELINE ВЫПОЛНЕНИЯ**
-
-```
-0:00  🚀 Start (git push)
-      │
-      ├── validate-compose
-      ├── lint-dockerfiles
-      ├── check-shell-scripts
-      ├── trivy-scan
-      ├── secret-scan
-      ├── build-n8n
-      ├── build-ml-service
-      └── test-tor
-      │
-4:00  ✅ Волна 1 завершена
-      │
-      ├── health-check
-      ├── integration-test
-      ├── test-config [minimal]
-      ├── test-config [monitoring]
-      └── n8n-e2e-test ⭐
-      │
-8:00  ✅ Волна 2 завершена
-      │
-      └── test-summary
-      │
-9:00  🎉 Все тесты завершены!
-```
-
----
-
-## 💼 **ИСПОЛЬЗОВАНИЕ RUNNERS**
-
-### **GitHub Actions Limits (Public Repo):**
-- ✅ **20 runners одновременно** (max)
-- ✅ **Безлимитное время** (public repo)
-- ✅ **ubuntu-latest** (4 cores, 16 GB RAM)
-
-### **Наше использование:**
-
-| Волна | Runners | % от лимита |
-|-------|---------|-------------|
-| **Волна 1** | 8 | 40% |
-| **Волна 2** | 5 | 25% |
-| **Волна 3** | 1 | 5% |
-
-**Вывод:** Мы используем **40% доступных runners** = оптимально!
-
----
-
-## 🚀 **КАК ЗАПУСТИТЬ ТЕСТЫ**
-
-### **Автоматически (при push):**
-
-```bash
-git add .
-git commit -m "fix: some changes"
-git push origin main
-
-# Тесты запустятся автоматически!
-```
-
-### **Вручную (через UI):**
-
-1. Откройте: https://github.com/KomarovAI/n8n-scraper-docker/actions
-2. Выберите **CI/CD Tests**
-3. Нажмите **Run workflow**
-4. Нажмите **Run workflow** (зелёная кнопка)
-
-### **Локально (полный цикл):**
-
-```bash
-# 1. Validation
-docker compose config > /dev/null
-echo "✅ docker-compose valid"
-
-# 2. Linting
-hadolint Dockerfile.n8n-enhanced
-echo "✅ Dockerfile linted"
-
-# 3. Security
-trivy fs . --severity CRITICAL,HIGH
-echo "✅ Security scan passed"
-
-# 4. Build
-docker buildx build -f Dockerfile.n8n-enhanced -t n8n-scraper:test .
-echo "✅ Image built"
-
-# 5. Health checks
-docker compose up -d postgres redis prometheus grafana
-sleep 30
-curl http://localhost:9090/-/healthy
-echo "✅ Health checks passed"
-
-# 6. Integration tests
-docker compose exec -T postgres psql -U scraper_user -d scraper_db -c "SELECT 1;"
-echo "✅ Integration tests passed"
-
-# 7. n8n E2E test
-docker compose up -d n8n
-sleep 60
-chmod +x tests/n8n/e2e-test.sh
-export N8N_URL="http://localhost:5678"
-export N8N_USER="admin"
-export N8N_PASSWORD="your_password"
-export WORKFLOW_FILE="tests/n8n/test-workflow.json"
-./tests/n8n/e2e-test.sh
-echo "✅ n8n E2E test passed"
-
-# 8. Cleanup
-docker compose down -v
-echo "✅ All tests completed!"
-```
-
----
-
-## 📊 **МОНИТОРИНГ ТЕСТОВ**
-
-### **Где смотреть результаты:**
-
-1. **GitHub Actions page:**
-   - https://github.com/KomarovAI/n8n-scraper-docker/actions
-   - Видно все запуски
-   - Workflow runs с timestamps
-
-2. **Badge в README:**
-   - Зелёный = все прошло
-   - Красный = есть ошибки
-
-3. **Security tab:**
-   - https://github.com/KomarovAI/n8n-scraper-docker/security
-   - Trivy results
-   - Dependabot alerts
-
----
-
-## 💡 **ЛУЧШИЕ ПРАКТИКИ**
-
-### **1. Запускайте локальные тесты перед push:**
-```bash
-docker compose config  # Быстро (всегда)
-hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
-```
-
-### **2. Мониторьте GitHub Actions:**
-- Проверяйте после каждого push
-- Исправляйте ред badges сразу
-
-### **3. Используйте workflow_dispatch:**
-- Ручной запуск тестов без push
-- Удобно для debugging
-
----
-
-## 🚨 **TROUBLESHOOTING**
-
-### **Если тесты упали:**
-
-#### **1. Проверьте логи:**
-```
-1. Откройте failed workflow
-2. Нажмите на красный job
-3. Разверните failed step
-4. Читайте error message
-```
-
-#### **2. Повторите локально:**
-```bash
-# Копируйте failed команду из логов
-# Запустите локально
-# Исправьте проблему
-# Push fix
-```
-
-#### **3. Типичные проблемы:**
-
-```
-❌ Lint failed
-   → Ошибка в docker-compose.yml
-   → docker compose config (проверьте локально)
-
-❌ Security scan failed
-   → Найдены уязвимости
-   → npm update / pip upgrade
-
-❌ Build failed
-   → Не установились зависимости
-   → Проверьте package.json / requirements.txt
-
-❌ Health check failed
-   → Сервис не запустился
-   → docker compose logs <service>
-
-❌ Integration test failed
-   → Нет связи между сервисами
-   → Проверьте depends_on в docker-compose.yml
-
-❌ n8n E2E test failed
-   → n8n не запустился
-   → docker compose logs n8n
-   → Проверьте N8N_PASSWORD в .env
-```
-
----
-
-## ✅ **ЧЕК-ЛИСТ ПЕРЕД PUSH**
-
-Перед каждым push:
-
-- [ ] Проверил docker-compose.yml: `docker compose config`
-- [ ] Проверил Dockerfile: `hadolint Dockerfile.n8n-enhanced`
-- [ ] Проверил shell scripts: `shellcheck scripts/*.sh` (если есть)
-- [ ] Нет секретов в коде
-- [ ] .env в .gitignore
+| **n8n E2E testing** | Нет | **Есть** |
+| **Smoke testing** | Нет | **Есть** ⭐ |
+| **Webhook testing** | Нет | **Есть** ⭐ |
+| **Subworkflow testing** | Нет | **Есть** ⭐ |
 
 ---
 
@@ -445,14 +199,15 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 
 | Метрика | Значение |
 |---------|----------|
-| **Total jobs** | 13 (+1 summary) |
+| **Total jobs** | 16 (+1 summary = 17) |
 | **Max параллельные runners** | 8 |
 | **Общее время** | ~9 мин (-50%) |
 | **Cache hit rate** | 80%+ (после 1го build) |
 | **Docker cache** | GHA (GitHub Actions) |
 | **Matrix configs** | 2 (minimal, monitoring) |
 | **Retry logic** | Да (30 попыток health checks) |
-| **n8n E2E testing** | Да ⭐ |
+| **n8n testing** | 3 типа (E2E, Webhooks, Subworkflows) |
+| **Smoke testing** | Да ⭐ |
 
 ---
 
@@ -466,6 +221,7 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 ✅ Secret detection (TruffleHog)
 ✅ Image build (n8n-enhanced)
 ✅ Image build (ml-service)
+✅ Container stability (Smoke Test) 🔥 ⭐
 ✅ PostgreSQL health
 ✅ Redis health
 ✅ Prometheus health
@@ -477,9 +233,11 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 ✅ Service connectivity
 ✅ Data persistence
 ✅ Multiple configurations
-✅ n8n Workflow E2E ⭐
+✅ n8n Workflow E2E
+✅ n8n Webhook endpoints 🔗 ⭐
+✅ n8n Subworkflow execution 🔗 ⭐
 
-**Coverage: 19 типов проверок!**
+**Coverage: 22 типа проверок! (+3 новых)**
 ```
 
 ---
@@ -489,11 +247,14 @@ hadolint Dockerfile.n8n-enhanced  # Быстро (всегда)
 - [🔄 GitHub Actions](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 - [🛡️ Security Tab](https://github.com/KomarovAI/n8n-scraper-docker/security)
 - [📊 Workflow File](.github/workflows/ci-test.yml)
-- [🧪 n8n E2E Tests](tests/n8n/README.md) ⭐
+- [🧪 n8n E2E Tests](tests/n8n/README.md)
+- [🔥 Smoke Tests](tests/smoke/README.md) ⭐
+- [🔗 Webhook Tests](tests/webhooks/README.md) ⭐
+- [🔗 Subworkflow Tests](tests/subworkflows/README.md) ⭐
 
 ---
 
-**Статус:** ✅ **OPTIMIZED FOR MAXIMUM PARALLELISM + n8n E2E**  
+**Статус:** ✅ **PRODUCTION-GRADE TESTING SUITE**  
 **Runners:** 8 одновременно (40% от лимита)  
-**Время:** ~9 мин (-50% от предыдущей версии)  
-**Coverage:** 19 типов проверок (+n8n E2E!) ⭐  
+**Время:** ~9 мин (-50%)  
+**Coverage:** 22 типа проверок (вкл. smoke, webhook, subworkflow!) ⭐  
