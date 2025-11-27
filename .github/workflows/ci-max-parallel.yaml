@@ -93,13 +93,13 @@ jobs:
           echo "fast-validation/build.log" > logs/index.txt
           echo "Status: ${{ job.status }}" > logs/fast-validation/status.txt
       
-      - name: 📤 Upload to combined logs artifact
+      - name: 📤 Upload to combined artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
-          retention-days: 7
+          retention-days: 30
 
   # Job 2: Smoke tests (maximum parallelization)
   smoke-tests:
@@ -188,13 +188,13 @@ jobs:
           echo "smoke-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
           echo "smoke-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined logs artifact
+      - name: 📤 Upload to combined artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
-          retention-days: 7
+          retention-days: 30
       
       - name: 🧹 Cleanup
         if: always()
@@ -273,13 +273,13 @@ jobs:
           echo "essential-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
           echo "essential-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined logs artifact
+      - name: 📤 Upload to combined artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
-          retention-days: 7
+          retention-days: 30
       
       - name: 🧹 Cleanup
         if: always()
@@ -358,13 +358,13 @@ jobs:
           echo "e2e/docker-n8n.log" >> logs/index.txt
           echo "e2e/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined logs artifact
+      - name: 📤 Upload to combined artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
-          retention-days: 7
+          retention-days: 30
       
       - name: 🧹 Cleanup
         if: always()
@@ -435,13 +435,13 @@ jobs:
           echo "integration/docker-postgres.log" >> logs/index.txt
           echo "integration/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined logs artifact
+      - name: 📤 Upload to combined artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
-          retention-days: 7
+          retention-days: 30
       
       - name: 🧹 Cleanup
         if: always()
@@ -517,13 +517,13 @@ jobs:
           echo "master/docker-prometheus.log" >> logs/index.txt
           echo "master/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined logs artifact
+      - name: 📤 Upload to combined artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
-          retention-days: 7
+          retention-days: 30
       
       - name: 🧹 Cleanup
         if: always()
@@ -542,13 +542,13 @@ jobs:
       - name: 📥 Download unified logs artifact
         uses: actions/download-artifact@v4
         with:
-          name: test-logs-combined
+          name: ci-artifacts-complete
           path: logs/
         continue-on-error: true
       
       - name: 📋 Show log structure
         run: |
-          echo "📦 Log structure:"
+          echo "📦 Complete artifact structure:"
           tree logs/ || find logs/ -type f
           echo ""
           echo "📄 Index file:"
@@ -557,7 +557,7 @@ jobs:
       - name: 🔍 Analyze logs and extract errors
         id: analyze-logs
         run: |
-          mkdir -p ctrf
+          mkdir -p logs/ctrf logs/metadata
           
           # Функция для извлечения первой ошибки из логов
           extract_error() {
@@ -587,13 +587,18 @@ jobs:
           echo "ERROR_INTEGRATION=$ERROR_INTEGRATION" >> $GITHUB_ENV
           echo "ERROR_MASTER=$ERROR_MASTER" >> $GITHUB_ENV
           
-          echo "✅ Errors extracted"
-          echo "Fast Validation: $ERROR_FAST_VALIDATION"
-          echo "Smoke: $ERROR_SMOKE"
-          echo "Essential: $ERROR_ESSENTIAL"
-          echo "E2E: $ERROR_E2E"
-          echo "Integration: $ERROR_INTEGRATION"
-          echo "Master: $ERROR_MASTER"
+          # Сохраняем метаданные
+          cat > logs/metadata/errors.txt << EOF
+          Fast Validation: $ERROR_FAST_VALIDATION
+          Smoke Tests: $ERROR_SMOKE
+          Essential Tests: $ERROR_ESSENTIAL
+          E2E Tests: $ERROR_E2E
+          Integration: $ERROR_INTEGRATION
+          Master E2E: $ERROR_MASTER
+          EOF
+          
+          echo "✅ Errors extracted and saved to logs/metadata/errors.txt"
+          cat logs/metadata/errors.txt
       
       - name: 📦 Generate Enhanced CTRF Report with Error Details
         run: |
@@ -656,7 +661,7 @@ jobs:
           STATUS_MASTER_E2E="${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}"
           
           # Создание CTRF отчёта с ошибками
-          cat > ctrf/ctrf-report.json << EOF
+          cat > logs/ctrf/ctrf-report.json << EOF
           {
             "results": {
               "tool": {
@@ -694,13 +699,24 @@ jobs:
           }
           EOF
           
+          # Сохраняем метаданные workflow
+          cat > logs/metadata/workflow-info.txt << EOF
+          Workflow: ${{ github.workflow }}
+          Run ID: ${{ github.run_id }}
+          Run Number: ${{ github.run_number }}
+          Commit: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          Actor: ${{ github.actor }}
+          Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+          
           echo "✅ CTRF report with error diagnostics generated"
-          cat ctrf/ctrf-report.json | jq '.' || cat ctrf/ctrf-report.json
+          cat logs/ctrf/ctrf-report.json | jq '.' || cat logs/ctrf/ctrf-report.json
       
       - name: 📊 Publish CTRF Test Report
         uses: ctrf-io/github-test-reporter@v1
         with:
-          report-path: './ctrf/*.json'
+          report-path: './logs/ctrf/*.json'
           summary-report: true
           test-report: true
           failed-report: true
@@ -709,7 +725,7 @@ jobs:
       - name: 🤖 Generate AI-Optimized Summary with Error Diagnostics
         run: |
           cat >> $GITHUB_STEP_SUMMARY << 'SUMMARY_BLOCK'
-          # 🚀 n8n Scraper - AI-Optimized Test Report with Diagnostics
+          # 🚀 n8n Scraper - Complete Test Report (ALL-IN-ONE)
           
           ```yaml
           # AI-OPTIMIZED YAML (85% fewer tokens vs verbose JSON)
@@ -718,13 +734,14 @@ jobs:
           meta:
             fmt: ctrf-v3-ai
             tok_saved: 85%
+            artifact: ALL_IN_ONE
           
           sum:
-            tot: $(jq '.results.summary.tests' ctrf/ctrf-report.json)
-            ok: $(jq '.results.summary.passed' ctrf/ctrf-report.json)
-            fail: $(jq '.results.summary.failed' ctrf/ctrf-report.json)
-            rate: $(jq -r '(.results.summary.passed * 100 / .results.summary.tests | floor)' ctrf/ctrf-report.json)
-            dur_m: $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' ctrf/ctrf-report.json)
+            tot: $(jq '.results.summary.tests' logs/ctrf/ctrf-report.json)
+            ok: $(jq '.results.summary.passed' logs/ctrf/ctrf-report.json)
+            fail: $(jq '.results.summary.failed' logs/ctrf/ctrf-report.json)
+            rate: $(jq -r '(.results.summary.passed * 100 / .results.summary.tests | floor)' logs/ctrf/ctrf-report.json)
+            dur_m: $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' logs/ctrf/ctrf-report.json)
             par: 12
           
           prod:
@@ -771,7 +788,7 @@ jobs:
           
           ## 📊 Human Summary
           
-          **Overall:** $(jq '.results.summary.passed' ctrf/ctrf-report.json)/$(jq '.results.summary.tests' ctrf/ctrf-report.json) ($(jq -r '(.results.summary.passed * 100 / .results.summary.tests | floor)' ctrf/ctrf-report.json)%) | $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' ctrf/ctrf-report.json)m | 12par  
+          **Overall:** $(jq '.results.summary.passed' logs/ctrf/ctrf-report.json)/$(jq '.results.summary.tests' logs/ctrf/ctrf-report.json) ($(jq -r '(.results.summary.passed * 100 / .results.summary.tests | floor)' logs/ctrf/ctrf-report.json)%) | $(jq '((.results.summary.stop - .results.summary.start) / 60000 | floor)' logs/ctrf/ctrf-report.json)m | 12par  
           **Prod:** ✅ 87%scrape, 5.3s, $2.88/1k, 99.8%up  
           **Suites:** ⚡${{ needs.fast-validation.result == 'success' && '✅' || '❌' }}(1,5m) 💨${{ needs.smoke-tests.result == 'success' && '✅' || '❌' }}(5,10m) 🧪${{ needs.essential-tests.result == 'success' && '✅' || '❌' }}(2,12m) 🎯${{ needs.e2e-tests.result == 'success' && '✅' || '❌' }}(1,12m) 🌐${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }}(1,10m) 🏆${{ needs.master-e2e.result == 'success' && '✅' || '❌' }}(1,15m)  
           **Result:** ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && '✅ PROD_READY' || '❌ REVIEW_REQ' }}
@@ -787,12 +804,17 @@ jobs:
           | Integration | ${{ needs.n8n-integration.result == 'success' && '✅' || '❌' }} | ${ERROR_INTEGRATION} | [n8n API](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#n8n) |
           | Master E2E | ${{ needs.master-e2e.result == 'success' && '✅' || '❌' }} | ${ERROR_MASTER} | [Full stack](https://github.com/KomarovAI/n8n-scraper-docker/blob/main/docs/TROUBLESHOOTING.md#master) |
           
-          ## 📦 Artifacts
+          ## 📦 **ULTIMATE ALL-IN-ONE ARTIFACT**
           
-          **Single Unified Artifact:** [test-logs-combined.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)
+          🎯 **[Download ci-artifacts-complete.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)** (ONE click, EVERYTHING inside)
           
           ```
-          test-logs-combined/
+          ci-artifacts-complete/
+          ├── ctrf/
+          │   └── ctrf-report.json          ← Test report with errors
+          ├── metadata/
+          │   ├── errors.txt                ← Extracted errors summary
+          │   └── workflow-info.txt         ← Run metadata
           ├── fast-validation/
           │   ├── build.log
           │   └── status.txt
@@ -802,30 +824,45 @@ jobs:
           │   ├── test-output.log
           │   └── status.txt
           ├── smoke-redis/
+          ├── smoke-tor/
+          ├── smoke-prometheus/
+          ├── smoke-grafana/
           ├── essential-health/
           ├── essential-workflow/
           ├── e2e/
+          │   ├── docker-n8n.log
+          │   ├── test-output.log
+          │   └── status.txt
           ├── integration/
+          │   ├── docker-n8n.log
+          │   ├── docker-postgres.log
+          │   └── test-output.log
           ├── master/
-          └── index.txt (log inventory)
+          │   ├── docker-ps.log
+          │   ├── docker-n8n.log
+          │   ├── docker-postgres.log
+          │   ├── docker-redis.log
+          │   ├── docker-prometheus.log
+          │   └── test-output.log
+          └── index.txt                     ← Complete file inventory
           ```
           
-          **Retention:** 7 days
+          **Retention:** 30 days | **Size:** ~few MB compressed
           
           ---
           
           [Full Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) | `${{ github.sha }}` | `${{ github.ref_name }}` | #${{ github.run_number }}
           
           ---
-          *CTRF v3.0 | YAML AI-Opt (85% token ↓) | Single Unified Artifact 📦 | Auto Error Detection ✅*
+          *CTRF v3.0 | YAML AI-Opt (85% token ↓) | 🎯 **ALL-IN-ONE ARTIFACT** | Auto Error Detection ✅*
           SUMMARY_BLOCK
           
-          echo "✅ AI-optimized summary with diagnostics generated"
+          echo "✅ AI-optimized summary with ALL-IN-ONE artifact info generated"
       
-      - name: 📤 Upload CTRF artifact
+      - name: 📤 Upload final ALL-IN-ONE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ctrf-report-${{ github.run_number }}
-          path: ctrf/*.json
+          name: ci-artifacts-complete
+          path: logs/
           retention-days: 30
         if: always()
