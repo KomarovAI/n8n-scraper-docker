@@ -4,7 +4,7 @@
 [![AI-Optimized v2.0](https://img.shields.io/badge/AI--Optimized-v2.0-blue?logo=ai&logoColor=white)](/.aimeta.json)
 [![Context-85%](https://img.shields.io/badge/Context-85%25%20Reduced-brightgreen)](/.aimeta.json)
 [![LLM-Friendly](https://img.shields.io/badge/LLM--Friendly-orange)](/.ai/instructions.md)
-[![Production-Ready](https://img.shields.io/badge/Production--Ready-success)](.)
+[![Production-Ready](https://img.shields.io/badge/Production--Ready-success)](. )
 [![Tests-Parallel](https://img.shields.io/badge/Tests-Parallel%20%7C%20Fast-blueviolet)](.github/workflows/parallel-tests.yml)
 
 > 🧠 **AI/LLM Optimized v2.0**: This repository follows **TOP 0.1% industry best practices** for minimal context consumption. **Documentation reduced by 85%**, unified AI instructions, TOON format metadata, zero redundancy.
@@ -20,7 +20,29 @@ Production-ready n8n web scraping platform with hybrid fallback strategy. **87% 
 **Minimum**: Docker 20.10+, Docker Compose 1.29+, 4 GB RAM, 10 GB disk  
 **Production**: Docker 24.0+, Docker Compose 2.0+, 8 GB RAM, 50 GB disk
 
-### Installation
+### Automated Installation (Recommended)
+
+**One-command setup** - automates all configuration steps:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/KomarovAI/n8n-scraper-docker.git
+cd n8n-scraper-docker
+
+# 2. Run automated setup
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+
+# This script will:
+# ✓ Create .env with secure passwords
+# ✓ Start all Docker services
+# ✓ Download Ollama model (llama3.2:3b)
+# ✓ Wait for services to be healthy
+# ✓ Save credentials to .credentials.txt
+# ✓ Display next steps
+```
+
+### Manual Installation
 
 ```bash
 # 1. Clone repository
@@ -35,8 +57,14 @@ nano .env                # Replace passwords
 # 3. Launch platform
 docker-compose up -d --build
 
-# 4. Verify services
-docker-compose ps        # Check all services are "Up"
+# 4. Download Ollama model (required for ML service)
+docker-compose exec ollama ollama pull llama3.2:3b
+
+# 5. Restart ML service
+docker-compose restart ml-service
+
+# 6. Verify services
+docker-compose ps        # Check all services are "Up (healthy)"
 docker-compose logs -f   # Monitor startup logs
 ```
 
@@ -44,15 +72,45 @@ docker-compose logs -f   # Monitor startup logs
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| **n8n** | [http://localhost:5678](http://localhost:5678) | `N8N_USER` / `N8N_PASSWORD` (from .env) |
-| **Grafana** | [http://localhost:3000](http://localhost:3000) | `GRAFANA_USER` / `GRAFANA_PASSWORD` (from .env) |
+| **n8n** | [http://localhost:5678](http://localhost:5678) | `N8N_USER` / `N8N_PASSWORD` (from .env or .credentials.txt) |
+| **Grafana** | [http://localhost:3000](http://localhost:3000) | `GRAFANA_USER` / `GRAFANA_PASSWORD` (from .env or .credentials.txt) |
 | **Prometheus** | [http://localhost:9090](http://localhost:9090) | No auth |
 
-### First Steps
+### ⚠️ Important First Steps
 
-1. **Import workflows**: Go to n8n → Workflows → Import from File → Select `workflows/*.json`
-2. **Test scraping**: Execute "Test Workflow" → Check results in PostgreSQL
-3. **View metrics**: Open Grafana → Dashboards → "n8n Scraping Overview"
+**Workflows must be imported manually** - this is required for scraping to work:
+
+1. **Open n8n**: http://localhost:5678
+2. **Login** with credentials from `.credentials.txt` or `.env`
+3. **Import workflows**:
+   - Click n8n logo (top-left) → Workflows → Import from File
+   - Select files from `workflows/` folder:
+     - `workflow-scraper-main.json`
+     - `workflow-scraper-enhanced.json`
+     - `control-panel.json`
+4. **Activate workflows**:
+   - Open each workflow
+   - Toggle "Inactive" → "Active" (switch turns green)
+5. **Test system**:
+   ```bash
+   bash tests/master/test_full_e2e.sh
+   ```
+
+---
+
+## 🆘 Troubleshooting
+
+### Common Issues
+
+| Issue | Quick Fix |
+|-------|----------|
+| ❌ "POSTGRES_PASSWORD must be set" | Run `./scripts/setup.sh` OR manually create `.env` from `.env.example` |
+| ❌ ML service failing "Model not found" | `docker-compose exec ollama ollama pull llama3.2:3b` |
+| ❌ Workflows not responding | Import workflows via n8n UI + activate them |
+| ❌ Services stuck in "starting" | Wait 3-5 minutes (first start), check `docker-compose logs` |
+| ❌ n8n taking long to start | DB migrations (60-120s first time, normal behavior) |
+
+**📖 Full troubleshooting guide**: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
 ---
 
@@ -87,7 +145,7 @@ grafana (3000)     → Monitoring dashboards
 ## 📊 Production Metrics
 
 | Metric | Value | Context |
-|--------|-------|---------|
+|--------|-------|---------|  
 | **Success Rate** | 87% | Across all scraping targets |
 | **Avg Latency** | 5.3s | Per URL (including fallback) |
 | **Cost Efficiency** | $2.88 | Per 1,000 URLs processed |
@@ -295,12 +353,15 @@ docker-compose exec n8n /bin/sh
 │   │   └── essential-tests.yml # Quick smoke tests
 │   └── copilot-instructions.md
 ├── docs/                     # Technical documentation
+│   ├── TROUBLESHOOTING.md     # 🆘 Comprehensive troubleshooting
 │   ├── HYBRID_FALLBACK_STRATEGY.md
 │   ├── NODRIVER_ENHANCED_V2.md
 │   └── CTRF_AI_OPTIMIZED.md    # 🤖 AI test reporting docs
 ├── ml/                       # ML service (smart routing)
 ├── monitoring/               # Prometheus, Grafana configs
 ├── scrapers/                 # Scraper implementations
+├── scripts/                  # Automation scripts
+│   └── setup.sh               # 🚀 Automated one-command setup
 ├── tests/                    # Test suites
 │   ├── master/                # 🏆 Master E2E test
 │   ├── smoke/                 # Smoke tests (parallel)
@@ -322,7 +383,7 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 ### Improvements over v1.1
 
 | Metric | v1.1 | v2.0 | Change |
-|--------|------|------|---------||
+|--------|------|------|---------|
 | **Context tokens** | 8,500 | **1,250** | **-85%** |
 | **Documentation files** | 14 | **6** | **-57%** |
 | **AI instruction files** | 3 | **1** | **-67%** |
@@ -359,6 +420,7 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 - [GitHub Actions (CI/CD)](https://github.com/KomarovAI/n8n-scraper-docker/actions)
 - [Architecture Details](ARCHITECTURE.md)
 - [Technical Docs](docs/)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 - [AI-Optimized Test Reports](docs/CTRF_AI_OPTIMIZED.md)
 
 ---
@@ -377,8 +439,9 @@ This repository follows **TOP 0.1% industry best practices** for AI/LLM optimiza
 ✅ **Master E2E Test** - 10-step full stack validation  
 ✅ **AI Test Reports** - 85% token reduction (YAML-based)  
 ✅ **Fully Monitored** - Prometheus + Grafana dashboards  
-✅ **Security Scanned** - Trivy + TruffleHog in CI/CD
+✅ **Security Scanned** - Trivy + TruffleHog in CI/CD  
+✅ **Automated Setup** - One-command installation script
 
 ---
 
-**Last Updated**: 2025-11-27 | **Version**: 2.0 | **License**: MIT
+**Last Updated**: 2025-11-27 | **Version**: 2.0.1 | **License**: MIT
