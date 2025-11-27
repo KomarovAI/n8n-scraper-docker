@@ -50,8 +50,11 @@ jobs:
       
       - name: 🐳 Build Docker image
         run: |
+          echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
           echo "🛠️ Building n8n-enhanced..."
           docker build -f Dockerfile.n8n-enhanced -t n8n-enhanced:test . 2>&1 | tee /tmp/fast-validation-build.log
+          echo "BUILD_EXIT_CODE=$?" >> $GITHUB_ENV
+          echo "END_TIME=$(date +%s)" >> $GITHUB_ENV
           echo "✅ Build successful"
       
       - name: 📦 Save Docker image
@@ -64,11 +67,27 @@ jobs:
           path: /tmp/n8n-enhanced.tar.gz
           retention-days: 1
       
-      - name: 📜 Save logs FLAT
+      - name: 📜 Save logs FLAT with METRICS
         if: always()
         run: |
           mkdir -p /tmp/logs
+          
+          # Основные логи
           cp /tmp/fast-validation-build.log /tmp/logs/ 2>/dev/null || echo "No build log" > /tmp/logs/fast-validation-build.log
+          
+          # Метрики
+          cat > /tmp/logs/fast-validation-metrics.json << EOF
+          {
+            "job": "fast-validation",
+            "status": "${{ job.status }}",
+            "start_time": "$START_TIME",
+            "end_time": "$END_TIME",
+            "duration_seconds": $((END_TIME - START_TIME)),
+            "exit_code": "$BUILD_EXIT_CODE",
+            "image_size_mb": $(stat -c%s /tmp/n8n-enhanced.tar.gz 2>/dev/null | awk '{print int($1/1024/1024)}' || echo 0)
+          }
+          EOF
+          
           echo "${{ job.status }}" > /tmp/logs/fast-validation-status.txt
       
       - name: 💾 Upload temp logs
@@ -117,7 +136,9 @@ jobs:
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
       - name: 🚀 Start service
-        run: docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/smoke-${{ matrix.test.slug }}-start.log
+        run: |
+          echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
+          docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/smoke-${{ matrix.test.slug }}-start.log
       
       - name: ⏱️ Wait for service
         run: |
@@ -130,14 +151,35 @@ jobs:
         run: |
           chmod +x ${{ matrix.test.script }} || true
           bash ${{ matrix.test.script }} 2>&1 | tee /tmp/smoke-${{ matrix.test.slug }}-test.log
+          echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+          echo "END_TIME=$(date +%s)" >> $GITHUB_ENV
       
-      - name: 📜 Save logs FLAT
+      - name: 📜 Save logs FLAT with METRICS
         if: always()
         run: |
           mkdir -p /tmp/logs
+          
+          # Docker статусы
           docker-compose ps > /tmp/logs/smoke-${{ matrix.test.slug }}-ps.log 2>&1
           docker-compose logs --tail=100 > /tmp/logs/smoke-${{ matrix.test.slug }}-docker.log 2>&1
+          
+          # Тестовые логи
           cp /tmp/smoke-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/smoke-${{ matrix.test.slug }}-test.log
+          
+          # Метрики
+          cat > /tmp/logs/smoke-${{ matrix.test.slug }}-metrics.json << EOF
+          {
+            "job": "smoke-${{ matrix.test.slug }}",
+            "test_name": "${{ matrix.test.name }}",
+            "status": "${{ job.status }}",
+            "start_time": "$START_TIME",
+            "end_time": "$END_TIME",
+            "duration_seconds": $((END_TIME - START_TIME)),
+            "exit_code": "$TEST_EXIT_CODE",
+            "service": "${{ matrix.test.services }}"
+          }
+          EOF
+          
           echo "${{ job.status }}" > /tmp/logs/smoke-${{ matrix.test.slug }}-status.txt
       
       - name: 💾 Upload temp logs
@@ -152,7 +194,7 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 3: Essential tests
+  # Job 3: Essential tests (аналогично с метриками)
   essential-tests:
     name: 🧪 Essential Test
     runs-on: ubuntu-latest
@@ -187,7 +229,9 @@ jobs:
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
       - name: 🚀 Start services
-        run: docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/essential-${{ matrix.test.slug }}-start.log
+        run: |
+          echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
+          docker-compose up -d ${{ matrix.test.services }} 2>&1 | tee /tmp/essential-${{ matrix.test.slug }}-start.log
       
       - name: ⏱️ Wait for n8n
         run: |
@@ -200,14 +244,30 @@ jobs:
         run: |
           chmod +x ${{ matrix.test.script }}
           bash ${{ matrix.test.script }} 2>&1 | tee /tmp/essential-${{ matrix.test.slug }}-test.log
+          echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+          echo "END_TIME=$(date +%s)" >> $GITHUB_ENV
       
-      - name: 📜 Save logs FLAT
+      - name: 📜 Save logs FLAT with METRICS
         if: always()
         run: |
           mkdir -p /tmp/logs
+          
           docker-compose ps > /tmp/logs/essential-${{ matrix.test.slug }}-ps.log 2>&1
           docker-compose logs --tail=150 > /tmp/logs/essential-${{ matrix.test.slug }}-docker.log 2>&1
           cp /tmp/essential-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/essential-${{ matrix.test.slug }}-test.log
+          
+          cat > /tmp/logs/essential-${{ matrix.test.slug }}-metrics.json << EOF
+          {
+            "job": "essential-${{ matrix.test.slug }}",
+            "test_name": "${{ matrix.test.name }}",
+            "status": "${{ job.status }}",
+            "start_time": "$START_TIME",
+            "end_time": "$END_TIME",
+            "duration_seconds": $((END_TIME - START_TIME)),
+            "exit_code": "$TEST_EXIT_CODE"
+          }
+          EOF
+          
           echo "${{ job.status }}" > /tmp/logs/essential-${{ matrix.test.slug }}-status.txt
       
       - name: 💾 Upload temp logs
@@ -222,7 +282,7 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 4: E2E tests
+  # Job 4-6: Аналогично добавляем метрики (сокращаю для читаемости)
   e2e-tests:
     name: 🎯 E2E Test
     runs-on: ubuntu-latest
@@ -258,7 +318,9 @@ jobs:
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
       - name: 🚀 Start stack
-        run: docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/e2e-start.log
+        run: |
+          echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
+          docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/e2e-start.log
       
       - name: ⏱️ Wait for n8n
         run: |
@@ -276,16 +338,31 @@ jobs:
         run: |
           if [ -f "workflow-test.js" ]; then
             node workflow-test.js 2>&1 | tee /tmp/e2e-test.log
+            echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
           else
             echo "⚠️ No E2E test" | tee /tmp/e2e-test.log
+            echo "TEST_EXIT_CODE=0" >> $GITHUB_ENV
           fi
+          echo "END_TIME=$(date +%s)" >> $GITHUB_ENV
       
-      - name: 📜 Save logs FLAT
+      - name: 📜 Save logs with METRICS
         if: always()
         run: |
           mkdir -p /tmp/logs
           docker-compose logs --tail=200 n8n > /tmp/logs/e2e-docker.log 2>&1
           cp /tmp/e2e-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/e2e-test.log
+          
+          cat > /tmp/logs/e2e-metrics.json << EOF
+          {
+            "job": "e2e",
+            "status": "${{ job.status }}",
+            "start_time": "$START_TIME",
+            "end_time": "$END_TIME",
+            "duration_seconds": $((END_TIME - START_TIME)),
+            "exit_code": "$TEST_EXIT_CODE"
+          }
+          EOF
+          
           echo "${{ job.status }}" > /tmp/logs/e2e-status.txt
       
       - name: 💾 Upload temp logs
@@ -300,7 +377,6 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 5: Integration
   n8n-integration:
     name: 🌐 Integration
     runs-on: ubuntu-latest
@@ -329,7 +405,9 @@ jobs:
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
       - name: 🚀 Start n8n stack
-        run: docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/integration-start.log
+        run: |
+          echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
+          docker-compose up -d n8n postgres redis 2>&1 | tee /tmp/integration-start.log
       
       - name: 🔍 Verify n8n
         run: |
@@ -344,17 +422,32 @@ jobs:
           if [ -f "tests/n8n/test_workflows.sh" ]; then
             chmod +x tests/n8n/test_workflows.sh
             bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/integration-test.log
+            echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
           else
             echo "⚠️ No workflow test" | tee /tmp/integration-test.log
+            echo "TEST_EXIT_CODE=0" >> $GITHUB_ENV
           fi
+          echo "END_TIME=$(date +%s)" >> $GITHUB_ENV
       
-      - name: 📜 Save logs FLAT
+      - name: 📜 Save logs with METRICS
         if: always()
         run: |
           mkdir -p /tmp/logs
           docker-compose logs --tail=200 n8n > /tmp/logs/integration-n8n.log 2>&1
           docker-compose logs --tail=100 postgres > /tmp/logs/integration-postgres.log 2>&1
           cp /tmp/integration-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/integration-test.log
+          
+          cat > /tmp/logs/integration-metrics.json << EOF
+          {
+            "job": "integration",
+            "status": "${{ job.status }}",
+            "start_time": "$START_TIME",
+            "end_time": "$END_TIME",
+            "duration_seconds": $((END_TIME - START_TIME)),
+            "exit_code": "$TEST_EXIT_CODE"
+          }
+          EOF
+          
           echo "${{ job.status }}" > /tmp/logs/integration-status.txt
       
       - name: 💾 Upload temp logs
@@ -369,7 +462,6 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 6: Master E2E
   master-e2e:
     name: 🏆 Master E2E
     runs-on: ubuntu-latest
@@ -398,7 +490,9 @@ jobs:
           sed -i "s/CHANGE_ME_GRAFANA_PASSWORD/test_grafana_$(openssl rand -hex 12)/g" .env
       
       - name: 🚀 Start full stack
-        run: docker-compose up -d 2>&1 | tee /tmp/master-start.log
+        run: |
+          echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
+          docker-compose up -d 2>&1 | tee /tmp/master-start.log
       
       - name: ⏱️ Wait for services
         run: |
@@ -414,8 +508,10 @@ jobs:
         run: |
           chmod +x tests/master/test_full_e2e.sh
           bash tests/master/test_full_e2e.sh 2>&1 | tee /tmp/master-test.log
+          echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+          echo "END_TIME=$(date +%s)" >> $GITHUB_ENV
       
-      - name: 📜 Save logs FLAT
+      - name: 📜 Save logs with METRICS
         if: always()
         run: |
           mkdir -p /tmp/logs
@@ -425,6 +521,18 @@ jobs:
           docker-compose logs --tail=50 redis > /tmp/logs/master-redis.log 2>&1
           docker-compose logs --tail=50 prometheus > /tmp/logs/master-prometheus.log 2>&1
           cp /tmp/master-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/master-test.log
+          
+          cat > /tmp/logs/master-metrics.json << EOF
+          {
+            "job": "master",
+            "status": "${{ job.status }}",
+            "start_time": "$START_TIME",
+            "end_time": "$END_TIME",
+            "duration_seconds": $((END_TIME - START_TIME)),
+            "exit_code": "$TEST_EXIT_CODE"
+          }
+          EOF
+          
           echo "${{ job.status }}" > /tmp/logs/master-status.txt
       
       - name: 💾 Upload temp logs
@@ -439,9 +547,9 @@ jobs:
         if: always()
         run: docker-compose down -v
 
-  # Job 7: CTRF Final Report - FLAT STRUCTURE
+  # Job 7: СУПЕР ИНФОРМАТИВНЫЙ CTRF ОТЧЕТ
   ctrf-report:
-    name: 🤖 CTRF Final
+    name: 📊 Enhanced CTRF Report
     runs-on: ubuntu-latest
     needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, master-e2e]
     if: always()
@@ -461,29 +569,62 @@ jobs:
         run: |
           mkdir -p logs
           
-          # Объединяем ВСЕ файлы в ОДНУ ПЛОСКУЮ директорию
           if [ -d "all-temp-logs" ]; then
             find all-temp-logs -type f -exec cp {} logs/ \;
           fi
           
-          echo "📦 FLAT structure created:"
-          ls -lh logs/
+          echo "📦 Collected $(ls -1 logs/ | wc -l) files"
       
-      - name: 🔍 Extract errors
+      - name: 📊 Parse metrics from JSON files
         run: |
-          # Функция поиска ошибок по префиксу файла
-          extract_error() {
+          echo "Parsing metrics..."
+          
+          # Собираем все метрики
+          for metrics_file in logs/*-metrics.json; do
+            if [ -f "$metrics_file" ]; then
+              job_name=$(jq -r '.job' "$metrics_file" 2>/dev/null || echo "unknown")
+              duration=$(jq -r '.duration_seconds' "$metrics_file" 2>/dev/null || echo 0)
+              status=$(jq -r '.status' "$metrics_file" 2>/dev/null || echo "unknown")
+              exit_code=$(jq -r '.exit_code' "$metrics_file" 2>/dev/null || echo "")
+              
+              echo "${job_name}:${duration}:${status}:${exit_code}" >> /tmp/all-metrics.txt
+            fi
+          done
+          
+          cat /tmp/all-metrics.txt 2>/dev/null || echo "No metrics found" > /tmp/all-metrics.txt
+      
+      - name: 🔍 Extract detailed errors with first lines
+        run: |
+          extract_error_detailed() {
             local prefix="$1"
-            grep -Eiho "(ERROR|error|failed|FAILED|exit code [0-9]+).*" \
-              logs/${prefix}-*.log 2>/dev/null | head -1 | sed 's/"/\\"/g' || echo "No logs found"
+            local error_msg=""
+            local first_line=""
+            
+            if ls logs/${prefix}-test.log 1> /dev/null 2>&1; then
+              # Ищем ERROR в логе
+              error_msg=$(grep -Eiho "(ERROR|error|failed|FAILED).*" logs/${prefix}-test.log 2>/dev/null | head -1 || echo "")
+              
+              # Берем первые 3 строки лога для контекста
+              first_line=$(head -3 logs/${prefix}-test.log 2>/dev/null | tr '\n' ' ' | cut -c1-200)
+              
+              if [ -z "$error_msg" ] && [ -n "$first_line" ]; then
+                echo "$first_line"
+              elif [ -n "$error_msg" ]; then
+                echo "$error_msg | Context: $first_line"
+              else
+                echo "No logs found"
+              fi
+            else
+              echo "No test log file"
+            fi
           }
           
-          ERROR_FAST=$(extract_error "fast-validation")
-          ERROR_SMOKE=$(extract_error "smoke-postgres")
-          ERROR_ESSENTIAL=$(extract_error "essential-health")
-          ERROR_E2E=$(extract_error "e2e")
-          ERROR_INTEGRATION=$(extract_error "integration")
-          ERROR_MASTER=$(extract_error "master")
+          ERROR_FAST=$(extract_error_detailed "fast-validation-build")
+          ERROR_SMOKE=$(extract_error_detailed "smoke-postgres")
+          ERROR_ESSENTIAL=$(extract_error_detailed "essential-health")
+          ERROR_E2E=$(extract_error_detailed "e2e")
+          ERROR_INTEGRATION=$(extract_error_detailed "integration")
+          ERROR_MASTER=$(extract_error_detailed "master")
           
           echo "ERROR_FAST=$ERROR_FAST" >> $GITHUB_ENV
           echo "ERROR_SMOKE=$ERROR_SMOKE" >> $GITHUB_ENV
@@ -492,17 +633,27 @@ jobs:
           echo "ERROR_INTEGRATION=$ERROR_INTEGRATION" >> $GITHUB_ENV
           echo "ERROR_MASTER=$ERROR_MASTER" >> $GITHUB_ENV
           
-          # Сохраняем в ПЛОСКИЙ файл
-          cat > logs/errors.txt << EOF
-          Fast: $ERROR_FAST
-          Smoke: $ERROR_SMOKE
-          Essential: $ERROR_ESSENTIAL
-          E2E: $ERROR_E2E
-          Integration: $ERROR_INTEGRATION
-          Master: $ERROR_MASTER
+          cat > logs/errors-detailed.txt << EOF
+          Fast Validation:
+          $ERROR_FAST
+          
+          Smoke Tests:
+          $ERROR_SMOKE
+          
+          Essential Tests:
+          $ERROR_ESSENTIAL
+          
+          E2E Tests:
+          $ERROR_E2E
+          
+          Integration:
+          $ERROR_INTEGRATION
+          
+          Master E2E:
+          $ERROR_MASTER
           EOF
       
-      - name: 📦 Generate CTRF
+      - name: 📊 Generate ENHANCED CTRF with full metrics
         run: |
           PASSED=0
           FAILED=0
@@ -513,6 +664,18 @@ jobs:
           [ "${{ needs.e2e-tests.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          
+          # Извлекаем длительность из метрик
+          get_duration() {
+            grep "^$1:" /tmp/all-metrics.txt 2>/dev/null | cut -d: -f2 || echo "0"
+          }
+          
+          DURATION_FAST=$(get_duration "fast-validation")
+          DURATION_SMOKE=$(get_duration "smoke-postgres")
+          DURATION_ESSENTIAL=$(get_duration "essential-health")
+          DURATION_E2E=$(get_duration "e2e")
+          DURATION_INTEGRATION=$(get_duration "integration")
+          DURATION_MASTER=$(get_duration "master")
           
           cat > logs/ctrf-report.json << EOF
           {
@@ -525,42 +688,162 @@ jobs:
                 "pending": 0,
                 "skipped": 0,
                 "other": 0,
-                "start": $(date -u -d '12 minutes ago' +%s)000,
+                "start": $(date -u -d '15 minutes ago' +%s)000,
                 "stop": $(date -u +%s)000
               },
               "tests": [
-                {"name": "Fast Validation", "status": "${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_FAST}"},
-                {"name": "Smoke: PostgreSQL", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Redis", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Tor", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Prometheus", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-                {"name": "Smoke: Grafana", "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_SMOKE}"},
-                {"name": "Essential: Health", "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_ESSENTIAL}"},
-                {"name": "Essential: Workflow", "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_ESSENTIAL}"},
-                {"name": "E2E: Node.js", "status": "${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_E2E}"},
-                {"name": "Integration: n8n", "status": "${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_INTEGRATION}"},
-                {"name": "Master: Full Stack", "status": "${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}", "message": "${ERROR_MASTER}"},
+                {
+                  "name": "Fast Validation",
+                  "status": "${{ needs.fast-validation.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_FAST}000,
+                  "message": "${ERROR_FAST}",
+                  "extra": {"job_result": "${{ needs.fast-validation.result }}"}
+                },
+                {
+                  "name": "Smoke: PostgreSQL",
+                  "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_SMOKE}000,
+                  "message": "${ERROR_SMOKE}"
+                },
+                {
+                  "name": "Smoke: Redis",
+                  "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_SMOKE}000,
+                  "message": "${ERROR_SMOKE}"
+                },
+                {
+                  "name": "Smoke: Tor",
+                  "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_SMOKE}000,
+                  "message": "${ERROR_SMOKE}"
+                },
+                {
+                  "name": "Smoke: Prometheus",
+                  "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_SMOKE}000,
+                  "message": "${ERROR_SMOKE}"
+                },
+                {
+                  "name": "Smoke: Grafana",
+                  "status": "${{ needs.smoke-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_SMOKE}000,
+                  "message": "${ERROR_SMOKE}"
+                },
+                {
+                  "name": "Essential: Health",
+                  "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_ESSENTIAL}000,
+                  "message": "${ERROR_ESSENTIAL}"
+                },
+                {
+                  "name": "Essential: Workflow",
+                  "status": "${{ needs.essential-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_ESSENTIAL}000,
+                  "message": "${ERROR_ESSENTIAL}"
+                },
+                {
+                  "name": "E2E: Node.js",
+                  "status": "${{ needs.e2e-tests.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_E2E}000,
+                  "message": "${ERROR_E2E}"
+                },
+                {
+                  "name": "Integration: n8n",
+                  "status": "${{ needs.n8n-integration.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_INTEGRATION}000,
+                  "message": "${ERROR_INTEGRATION}"
+                },
+                {
+                  "name": "Master: Full Stack",
+                  "status": "${{ needs.master-e2e.result == 'success' && 'passed' || 'failed' }}",
+                  "duration": ${DURATION_MASTER}000,
+                  "message": "${ERROR_MASTER}"
+                },
                 {"name": "Perf: Latency", "status": "passed", "duration": 5300}
               ],
-              "extra": {"prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92}}
+              "extra": {
+                "prod": {"scrape": 87, "lat_ms": 5300, "cost": 2.88, "up": 99.8, "cf": 92},
+                "workflow": {
+                  "run_number": ${{ github.run_number }},
+                  "run_id": ${{ github.run_id }},
+                  "actor": "${{ github.actor }}",
+                  "ref": "${{ github.ref_name }}",
+                  "sha": "${{ github.sha }}",
+                  "repository": "${{ github.repository }}"
+                }
+              }
             }
           }
           EOF
           
+          echo "✅ Enhanced CTRF generated"
+      
+      - name: 📝 Generate diagnostic report
+        run: |
+          cat > logs/diagnostic.md << 'EOF'
+          # 🔍 CI/CD Diagnostic Report
+          
+          ## 📊 Test Results Summary
+          
+          | Test Suite | Status | Duration | Details |
+          |------------|--------|----------|----------|
+          | Fast Validation | ${{ needs.fast-validation.result }} | ${DURATION_FAST}s | Build & Security |
+          | Smoke Tests | ${{ needs.smoke-tests.result }} | ${DURATION_SMOKE}s | 5 services |
+          | Essential Tests | ${{ needs.essential-tests.result }} | ${DURATION_ESSENTIAL}s | Health + Workflow |
+          | E2E Tests | ${{ needs.e2e-tests.result }} | ${DURATION_E2E}s | Node.js integration |
+          | Integration | ${{ needs.n8n-integration.result }} | ${DURATION_INTEGRATION}s | Full n8n stack |
+          | Master E2E | ${{ needs.master-e2e.result }} | ${DURATION_MASTER}s | Complete system |
+          
+          ## 🎯 Quick Stats
+          
+          - **Total Tests**: 12
+          - **Passed**: ${PASSED}
+          - **Failed**: ${FAILED}
+          - **Success Rate**: $((PASSED * 100 / 12))%
+          
+          ## 📁 Available Logs
+          
+          ```
+          $(ls -1 logs/ | head -20)
+          ```
+          
+          ## 🔗 Useful Links
+          
+          - [Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [Commit](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          - [Repository](https://github.com/${{ github.repository }})
+          
+          ## 💡 Troubleshooting
+          
+          Check detailed error messages in `errors-detailed.txt`
+          
+          For metrics: See `*-metrics.json` files
+          EOF
+      
+      - name: 📊 Generate workflow summary
+        run: |
           cat > logs/workflow-info.txt << EOF
           Workflow: ${{ github.workflow }}
           Run: ${{ github.run_number }}
+          Run ID: ${{ github.run_id }}
           Commit: ${{ github.sha }}
           Branch: ${{ github.ref_name }}
           Actor: ${{ github.actor }}
+          Repository: ${{ github.repository }}
           Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          Test Results: ${PASSED} passed, ${FAILED} failed
+          Success Rate: $((PASSED * 100 / 12))%
+          
+          Links:
+          - Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - Commit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
           EOF
           
           ls -1 logs/ > logs/index.txt
           
-          echo "✅ CTRF generated"
-          echo "📁 Files in archive:"
-          cat logs/index.txt
+          echo "✅ All reports generated"
+          echo "📊 Files: $(ls -1 logs/ | wc -l)"
       
       - name: 📊 Publish CTRF
         uses: ctrf-io/github-test-reporter@v1
@@ -571,7 +854,7 @@ jobs:
           failed-report: true
         if: always()
       
-      - name: 📤 Upload SINGLE FLAT ARTIFACT
+      - name: 📤 Upload COMPREHENSIVE ARTIFACT
         uses: actions/upload-artifact@v4
         with:
           name: ci-artifacts-complete
