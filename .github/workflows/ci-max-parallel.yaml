@@ -589,12 +589,56 @@ jobs:
             cf: 92
           
           suites:
-            validation: {n: 1, st: ${{ needs.fast-validation.result == 'success' && 'ok' || 'fail' }}, dur_m: 5, cov: [lint,sec,build]}
-            smoke: {n: 5, st: ${{ needs.smoke-tests.result == 'success' && 'ok' || 'fail' }}, dur_m: 10, svc: [pg,redis,tor,prom,graf]}
-            essential: {n: 2, st: ${{ needs.essential-tests.result == 'success' && 'ok' || 'fail' }}, dur_m: 12, cov: [health,wf]}
-            e2e: {n: 1, st: ${{ needs.e2e-tests.result == 'success' && 'ok' || 'fail' }}, dur_m: 12, cov: [nodejs]}
-            integration: {n: 1, st: ${{ needs.n8n-integration.result == 'success' && 'ok' || 'fail' }}, dur_m: 10, cov: [n8n_api]}
-            master: {n: 1, st: ${{ needs.master-e2e.result == 'success' && 'ok' || 'fail' }}, dur_m: 15, svc: [n8n,pg,redis,tor,ml,ollama,prom,graf]}
+            validation:
+              n: 1
+              st: ${{ needs.fast-validation.result == 'success' && 'ok' || 'fail' }}
+              dur_m: 5
+              cov:
+                - lint
+                - sec
+                - build
+            smoke:
+              n: 5
+              st: ${{ needs.smoke-tests.result == 'success' && 'ok' || 'fail' }}
+              dur_m: 10
+              svc:
+                - pg
+                - redis
+                - tor
+                - prom
+                - graf
+            essential:
+              n: 2
+              st: ${{ needs.essential-tests.result == 'success' && 'ok' || 'fail' }}
+              dur_m: 12
+              cov:
+                - health
+                - wf
+            e2e:
+              n: 1
+              st: ${{ needs.e2e-tests.result == 'success' && 'ok' || 'fail' }}
+              dur_m: 12
+              cov:
+                - nodejs
+            integration:
+              n: 1
+              st: ${{ needs.n8n-integration.result == 'success' && 'ok' || 'fail' }}
+              dur_m: 10
+              cov:
+                - n8n_api
+            master:
+              n: 1
+              st: ${{ needs.master-e2e.result == 'success' && 'ok' || 'fail' }}
+              dur_m: 15
+              svc:
+                - n8n
+                - pg
+                - redis
+                - tor
+                - ml
+                - ollama
+                - prom
+                - graf
           
           concl: ${{ needs.fast-validation.result == 'success' && needs.smoke-tests.result == 'success' && needs.essential-tests.result == 'success' && needs.e2e-tests.result == 'success' && needs.n8n-integration.result == 'success' && needs.master-e2e.result == 'success' && 'prod_ready' || 'review_req' }}
           ```
