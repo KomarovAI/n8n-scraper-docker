@@ -426,16 +426,20 @@ CTRF_EOF
       
       - name: Generate Failed Tests Detailed Report
         if: steps.results.outputs.failed != '0'
+        env:
+          WORKFLOW_RUN: ${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          SUCCESS_RATE: ${{ steps.results.outputs.success_rate }}
         run: |
           CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           
-          cat > unified-report/failed-tests-detailed.json << FAILED_EOF
+          cat > unified-report/failed-tests-detailed.json << 'FAILED_EOF'
 {
   "metadata": {
-    "generated_at": "${CURRENT_TIME}",
-    "workflow_run": "${{ github.run_id }}",
-    "commit": "${{ github.sha }}",
-    "success_rate": ${{ steps.results.outputs.success_rate }}
+    "generated_at": "TIMESTAMP_PLACEHOLDER",
+    "workflow_run": "WORKFLOW_RUN_PLACEHOLDER",
+    "commit": "COMMIT_SHA_PLACEHOLDER",
+    "success_rate": SUCCESS_RATE_PLACEHOLDER
   },
   "failed_tests": [],
   "failure_patterns": {
@@ -449,6 +453,11 @@ CTRF_EOF
   }
 }
 FAILED_EOF
+          
+          sed -i "s/TIMESTAMP_PLACEHOLDER/$CURRENT_TIME/g" unified-report/failed-tests-detailed.json
+          sed -i "s/WORKFLOW_RUN_PLACEHOLDER/$WORKFLOW_RUN/g" unified-report/failed-tests-detailed.json
+          sed -i "s/COMMIT_SHA_PLACEHOLDER/$COMMIT_SHA/g" unified-report/failed-tests-detailed.json
+          sed -i "s/SUCCESS_RATE_PLACEHOLDER/$SUCCESS_RATE/g" unified-report/failed-tests-detailed.json
           
           echo "✅ Failed tests detailed report generated"
       
@@ -482,69 +491,123 @@ METRICS_EOF
           echo "✅ Metrics report generated"
       
       - name: Generate Metadata Report
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_NUMBER: ${{ github.run_number }}
+          REPO_NAME: ${{ github.repository }}
+          REPO_BRANCH: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_AUTHOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           COMMIT_MESSAGE=$(git log -1 --pretty=%B | head -n1 | sed 's/"/\\"/g' | tr -d '\n')
           DOCKER_VERSION=$(docker --version | cut -d' ' -f3 | tr -d ',')
           COMMIT_TIMESTAMP=$(git log -1 --pretty=%cI)
           
-          cat > unified-report/metadata.json << METADATA_EOF
+          cat > unified-report/metadata.json << 'METADATA_EOF'
 {
   "workflow": {
     "name": "CI/CD Tests",
-    "run_id": "${{ github.run_id }}",
-    "run_number": ${{ github.run_number }},
-    "run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+    "run_id": "WORKFLOW_RUN_ID_PLACEHOLDER",
+    "run_number": WORKFLOW_RUN_NUMBER_PLACEHOLDER,
+    "run_url": "https://github.com/REPO_NAME_PLACEHOLDER/actions/runs/WORKFLOW_RUN_ID_PLACEHOLDER"
   },
   "repository": {
-    "name": "${{ github.repository }}",
-    "url": "https://github.com/${{ github.repository }}",
-    "branch": "${{ github.ref_name }}",
+    "name": "REPO_NAME_PLACEHOLDER",
+    "url": "https://github.com/REPO_NAME_PLACEHOLDER",
+    "branch": "REPO_BRANCH_PLACEHOLDER",
     "commit": {
-      "sha": "${{ github.sha }}",
-      "message": "${COMMIT_MESSAGE}",
-      "author": "${{ github.actor }}",
-      "timestamp": "${COMMIT_TIMESTAMP}"
+      "sha": "COMMIT_SHA_PLACEHOLDER",
+      "message": "COMMIT_MESSAGE_PLACEHOLDER",
+      "author": "COMMIT_AUTHOR_PLACEHOLDER",
+      "timestamp": "COMMIT_TIMESTAMP_PLACEHOLDER"
     }
   },
   "environment": {
     "runner": "ubuntu-latest",
-    "docker_version": "${DOCKER_VERSION}"
+    "docker_version": "DOCKER_VERSION_PLACEHOLDER"
   },
   "triggered_by": {
-    "event": "${{ github.event_name }}",
-    "actor": "${{ github.actor }}"
+    "event": "EVENT_NAME_PLACEHOLDER",
+    "actor": "COMMIT_AUTHOR_PLACEHOLDER"
   }
 }
 METADATA_EOF
+          
+          sed -i "s/WORKFLOW_RUN_ID_PLACEHOLDER/$WORKFLOW_RUN_ID/g" unified-report/metadata.json
+          sed -i "s/WORKFLOW_RUN_NUMBER_PLACEHOLDER/$WORKFLOW_RUN_NUMBER/g" unified-report/metadata.json
+          sed -i "s/REPO_NAME_PLACEHOLDER/$REPO_NAME/g" unified-report/metadata.json
+          sed -i "s/REPO_BRANCH_PLACEHOLDER/$REPO_BRANCH/g" unified-report/metadata.json
+          sed -i "s/COMMIT_SHA_PLACEHOLDER/$COMMIT_SHA/g" unified-report/metadata.json
+          sed -i "s|COMMIT_MESSAGE_PLACEHOLDER|$COMMIT_MESSAGE|g" unified-report/metadata.json
+          sed -i "s/COMMIT_AUTHOR_PLACEHOLDER/$COMMIT_AUTHOR/g" unified-report/metadata.json
+          sed -i "s/COMMIT_TIMESTAMP_PLACEHOLDER/$COMMIT_TIMESTAMP/g" unified-report/metadata.json
+          sed -i "s/DOCKER_VERSION_PLACEHOLDER/$DOCKER_VERSION/g" unified-report/metadata.json
+          sed -i "s/EVENT_NAME_PLACEHOLDER/$EVENT_NAME/g" unified-report/metadata.json
+          
           echo "✅ Metadata report generated"
       
       - name: Generate AI-Ready Summary
+        env:
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          REPO_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO_BRANCH: ${{ github.ref_name }}
+          WORKFLOW_RUN_NUMBER: ${{ github.run_number }}
+          TESTS_TOTAL: ${{ steps.results.outputs.total }}
+          TESTS_PASSED: ${{ steps.results.outputs.passed }}
+          TESTS_FAILED: ${{ steps.results.outputs.failed }}
+          SUCCESS_RATE: ${{ steps.results.outputs.success_rate }}
+          VALIDATE_RESULT: ${{ needs.validate-compose.result }}
+          LINT_RESULT: ${{ needs.lint-dockerfiles.result }}
+          SHELL_RESULT: ${{ needs.check-shell-scripts.result }}
+          TRIVY_RESULT: ${{ needs.trivy-scan.result }}
+          SECRET_RESULT: ${{ needs.secret-scan.result }}
+          BUILD_RESULT: ${{ needs.build-n8n.result }}
         run: |
           CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          VALIDATE_ICON="❌"
+          [[ "$VALIDATE_RESULT" == "success" ]] && VALIDATE_ICON="✅"
+          
+          LINT_ICON="❌"
+          [[ "$LINT_RESULT" == "success" ]] && LINT_ICON="✅"
+          
+          SHELL_ICON="❌"
+          [[ "$SHELL_RESULT" == "success" ]] && SHELL_ICON="✅"
+          
+          TRIVY_ICON="❌"
+          [[ "$TRIVY_RESULT" == "success" ]] && TRIVY_ICON="✅"
+          
+          SECRET_ICON="❌"
+          [[ "$SECRET_RESULT" == "success" ]] && SECRET_ICON="✅"
+          
+          BUILD_ICON="❌"
+          [[ "$BUILD_RESULT" == "success" ]] && BUILD_ICON="✅"
           
           cat > unified-report/ai-ready-summary.md << SUMMARY_EOF
 # CI/CD Test Results - AI Analysis Report
 
 ## 📊 Executive Summary
 
-- **Success Rate**: ${{ steps.results.outputs.success_rate }}%
-- **Tests Passed**: ${{ steps.results.outputs.passed }}/${{ steps.results.outputs.total }}
-- **Tests Failed**: ${{ steps.results.outputs.failed }}/${{ steps.results.outputs.total }}
-- **Workflow Run**: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-- **Commit**: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-- **Branch**: ${{ github.ref_name }}
+- **Success Rate**: ${SUCCESS_RATE}%
+- **Tests Passed**: ${TESTS_PASSED}/${TESTS_TOTAL}
+- **Tests Failed**: ${TESTS_FAILED}/${TESTS_TOTAL}
+- **Workflow Run**: [${WORKFLOW_RUN_ID}](https://github.com/${REPO_NAME}/actions/runs/${WORKFLOW_RUN_ID})
+- **Commit**: [${COMMIT_SHA}](https://github.com/${REPO_NAME}/commit/${COMMIT_SHA})
+- **Branch**: ${REPO_BRANCH}
 - **Timestamp**: ${CURRENT_TIME}
 
 ## ✅ Test Results
 
 | Test Name | Status | Duration | Log File |
 |-----------|--------|----------|----------|
-| Docker Compose Validation | ${{ needs.validate-compose.result == 'success' && '✅' || '❌' }} | 5s | logs/validate-compose.log |
-| Dockerfile Linting | ${{ needs.lint-dockerfiles.result == 'success' && '✅' || '❌' }} | 10s | logs/lint-dockerfiles.log |
-| Shell Script Checks | ${{ needs.check-shell-scripts.result == 'success' && '✅' || '❌' }} | 8s | logs/check-shell-scripts.log |
-| Security Scan (Trivy) | ${{ needs.trivy-scan.result == 'success' && '✅' || '❌' }} | 30s | logs/trivy-scan.log |
-| Secret Detection | ${{ needs.secret-scan.result == 'success' && '✅' || '❌' }} | 15s | logs/secret-scan.log |
-| Build n8n-enhanced | ${{ needs.build-n8n.result == 'success' && '✅' || '❌' }} | 2m | logs/build-n8n.log |
+| Docker Compose Validation | ${VALIDATE_ICON} | 5s | logs/validate-compose.log |
+| Dockerfile Linting | ${LINT_ICON} | 10s | logs/lint-dockerfiles.log |
+| Shell Script Checks | ${SHELL_ICON} | 8s | logs/check-shell-scripts.log |
+| Security Scan (Trivy) | ${TRIVY_ICON} | 30s | logs/trivy-scan.log |
+| Secret Detection | ${SECRET_ICON} | 15s | logs/secret-scan.log |
+| Build n8n-enhanced | ${BUILD_ICON} | 2m | logs/build-n8n.log |
 
 ## 🤖 AI Analysis Instructions
 
@@ -577,7 +640,7 @@ Identify recurring failure patterns across test categories.
 ✅ 300+ CTRF-compatible models
 
 **Usage:**
-1. Download \`unified-test-report-${{ github.run_number }}.zip\`
+1. Download \`unified-test-report-${WORKFLOW_RUN_NUMBER}.zip\`
 2. Extract files
 3. Upload \`ctrf-report.json\` + \`failed-tests-detailed.json\` to AI
 4. Use prompts above for instant analysis
