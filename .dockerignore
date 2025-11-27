@@ -8,6 +8,7 @@ README.md
 README-prod-quickstart.md
 SECURITY.md
 docs/
+*.md
 
 # Kubernetes manifests
 manifests/
@@ -23,6 +24,7 @@ scripts/
 .env
 .env.example
 docker-compose.yml
+docker-compose*.yml
 
 # IDE
 .vscode/
@@ -37,8 +39,7 @@ dist/
 build/
 *.log
 
-# Testing
-test/
+# Testing (исключаем tests/, но оставляем test_*.sh для debug если нужно)
 tests/
 *.test.js
 *.spec.js
@@ -48,8 +49,14 @@ tests/
 .gitlab-ci.yml
 .travis.yml
 
-# Other
-monitoring/
-ml/
-proxy/
-utils/
+# Temporary files
+*.tmp
+*.swp
+*.bak
+
+# ВАЖНО: НЕ исключаем эти директории - они нужны в builder stage!
+# monitoring/  - закомментировано, используется в Dockerfile
+# ml/          - закомментировано, НЕ нужен в n8n образе
+# scrapers/    - закомментировано, используется в Dockerfile
+# workflows/   - закомментировано, используется в Dockerfile
+# utils/       - закомментировано, может использоваться
