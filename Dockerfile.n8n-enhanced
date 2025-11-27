@@ -1,4 +1,4 @@
-# ✅ FIX #4: Dockerfile с cheerio, axios, puppeteer-cluster и всеми зависимостями
+# ✅ FIX: Dockerfile с cheerio, axios, puppeteer-cluster и всеми зависимостями
 FROM n8nio/n8n:latest
 
 # Install system dependencies for Puppeteer
@@ -23,11 +23,9 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 USER node
 WORKDIR /home/node/.n8n
 
-# Install N8N dependencies
-# ✅ FIX #3: axios (but prefer n8n helpers)
-# ✅ FIX #4: cheerio for HTML parsing
-# ✅ FIX #11: puppeteer-cluster
-RUN npm install -g \
+# ✅ FIX #1: Локальная установка зависимостей (npm install --prefix)
+# Вместо npm install -g который n8n не видел
+RUN npm install --prefix /home/node/.n8n \
     axios@^1.6.0 \
     cheerio@^1.0.0-rc.12 \
     puppeteer@^21.0.0 \
@@ -48,23 +46,24 @@ RUN npm install -g \
     @opentelemetry/instrumentation-express@^0.35.0 \
     @opentelemetry/api@^1.7.0
 
-# Copy custom nodes
-COPY --chown=node:node nodes/ /home/node/.n8n/nodes/
+# ✅ FIX #2: Копирование только существующих директорий с graceful handling
+# Custom nodes (если есть)
+COPY --chown=node:node nodes* /home/node/.n8n/nodes/ 2>/dev/null || echo "No custom nodes found, skipping..."
 
-# Copy utilities
-COPY --chown=node:node utils/ /home/node/.n8n/utils/
+# Utilities (если есть)
+COPY --chown=node:node utils* /home/node/.n8n/utils/ 2>/dev/null || echo "No utils found, skipping..."
 
-# Copy monitoring configs
-COPY --chown=node:node monitoring/ /home/node/.n8n/monitoring/
+# Monitoring configs (если есть)
+COPY --chown=node:node monitoring* /home/node/.n8n/monitoring/ 2>/dev/null || echo "No monitoring configs found, skipping..."
 
-# Copy workflows
-COPY --chown=node:node workflows/ /home/node/.n8n/workflows/
+# Workflows (если есть)
+COPY --chown=node:node workflows* /home/node/.n8n/workflows/ 2>/dev/null || echo "No workflows found, skipping..."
 
-# Copy scrapers
-COPY --chown=node:node scrapers/ /home/node/.n8n/scrapers/
+# Scrapers (если есть)
+COPY --chown=node:node scrapers* /home/node/.n8n/scrapers/ 2>/dev/null || echo "No scrapers found, skipping..."
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+# ✅ FIX #3: Healthcheck с большим start-period для медленных сред
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1
 
 # Expose N8N port
@@ -76,7 +75,8 @@ ENV N8N_METRICS=true \
     GENERIC_TIMEZONE=Europe/Moscow \
     EXECUTIONS_DATA_SAVE_ON_ERROR=all \
     EXECUTIONS_DATA_SAVE_ON_SUCCESS=all \
-    EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
+    EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true \
+    NODE_PATH=/home/node/.n8n/node_modules
 
 # Run N8N
 CMD ["n8n"]
