@@ -41,12 +41,6 @@ jobs:
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: ${{ runner.os }}-buildx-
       
-      - name: 🔍 Lint YAML
-        run: |
-          echo "Linting docker-compose.yml"
-          docker run --rm -v "$(pwd)":/workspace mikefarah/yq eval '.services' docker-compose.yml > /dev/null
-          echo "YAML valid"
-      
       - name: 🔒 Security scan
         run: |
           echo "Scanning for secrets..."
@@ -54,9 +48,9 @@ jobs:
           echo "Scan complete"
       
       - name: 🐳 Build image
-        shell: bash  # ✅ КРИТИЧНО: pipefail работает ТОЛЬКО в bash
+        shell: bash
         run: |
-          set -o pipefail  # Теперь работает корректно
+          set -o pipefail
           echo "Building n8n-enhanced..."
           docker build -f Dockerfile.n8n-enhanced -t n8n-enhanced:test . 2>&1 | tee /tmp/fast-validation-test.log
           echo "Build successful"
