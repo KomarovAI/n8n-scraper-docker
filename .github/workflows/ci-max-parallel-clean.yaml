@@ -1,4 +1,4 @@
-name: 🚀 CI/CD Maximum Parallel (Clean)
+name: 🚀 CI/CD Maximum Parallel (Turbo)
 
 on:
   push:
@@ -108,7 +108,7 @@ jobs:
   smoke-tests:
     name: 💨 Smoke Test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     needs: fast-validation
     strategy:
       fail-fast: false
@@ -210,14 +210,13 @@ jobs:
       - name: 🧹 Cleanup
         if: always()
         run: |
-          # Создаем пустой .env если его нет
           [ ! -f .env ] && touch .env
           docker compose down -v
 
   essential-tests:
     name: 🧪 Essential Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     needs: fast-validation
     strategy:
       fail-fast: false
@@ -266,54 +265,48 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start services (parallel)
+      - name: 🚀 Start services (optimized)
         run: |
           # Запускаем postgres+redis сначала
           docker compose up -d postgres redis
           echo "Waiting for database..."
-          sleep 10
+          sleep 8
           
-          # Теперь запускаем n8n
+          # Теперь запускаем n8n (без ml-service - мгновенный старт!)
           docker compose up -d n8n
           echo "n8n started, waiting for initialization..."
       
-      - name: ⏱️ Wait for n8n (max 3 min)
+      - name: ⏱️ Wait for n8n (FAST - max 60s)
         run: |
-          echo "⌛ Waiting for n8n to start (max 180 seconds)..."
+          echo "⌛ Waiting for n8n to start (max 60 seconds)..."
           START=$(date +%s)
           
-          # Показываем логи в фоне
-          docker compose logs -f n8n &
-          LOGS_PID=$!
-          
-          for i in {1..90}; do
+          for i in {1..60}; do
             ELAPSED=$(($(date +%s) - START))
             
             # Пробуем оба endpoint'а
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
                curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              kill $LOGS_PID 2>/dev/null || true
               echo "✅ n8n is ready after ${ELAPSED}s!"
               docker compose ps
               exit 0
             fi
             
-            # Прогресс каждые 30с
-            if [ $((i % 15)) -eq 0 ]; then
+            # Прогресс каждые 10с
+            if [ $((i % 10)) -eq 0 ]; then
               echo "⌛ Still waiting... (${ELAPSED}s elapsed)"
               docker compose ps n8n postgres redis
             fi
             
-            sleep 2
+            sleep 1
           done
           
           # Timeout - показываем диагностику
-          kill $LOGS_PID 2>/dev/null || true
-          echo "❌ n8n failed to start after 180 seconds"
+          echo "❌ n8n failed to start after 60 seconds"
           echo "=== Container status ==="
           docker compose ps
           echo "=== n8n logs ==="
-          docker compose logs --tail=50 n8n
+          docker compose logs --tail=100 n8n
           echo "=== PostgreSQL status ==="
           docker compose exec -T postgres pg_isready || true
           echo "=== Redis status ==="
@@ -364,10 +357,138 @@ jobs:
           [ ! -f .env ] && touch .env
           docker compose down -v
 
+  ml-services:
+    name: 🧠 ML Services
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: fast-validation
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - { name: "Ollama", slug: "ollama", services: "ollama", timeout: 240 }
+          - { name: "ML Service", slug: "ml-service", services: "ollama redis ml-service", timeout: 360 }
+    steps:
+      - name: 📊 Checkout
+        uses: actions/checkout@v4
+      
+      - name: ⏱️ Start timer
+        id: timer
+        run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+      
+      - name: 📥 Download image
+        uses: actions/download-artifact@v4
+        with:
+          name: n8n-enhanced-image
+          path: /tmp
+      
+      - name: 📦 Load image
+        run: docker load < /tmp/n8n-enhanced.tar.gz
+      
+      - name: 📝 Create .env from secrets
+        run: |
+          cat > .env << EOF
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          EOF
+      
+      - name: 🚀 Start ML services
+        run: |
+          echo "🧠 Starting ${{ matrix.test.name }}..."
+          docker compose up -d ${{ matrix.test.services }}
+      
+      - name: ⏱️ Wait for services
+        run: |
+          echo "⌛ Waiting for ${{ matrix.test.name }} (max ${{ matrix.test.timeout }}s)..."
+          START=$(date +%s)
+          MAX_WAIT=${{ matrix.test.timeout }}
+          
+          while [ $(($(date +%s) - START)) -lt $MAX_WAIT ]; do
+            ELAPSED=$(($(date +%s) - START))
+            
+            # Проверяем Ollama
+            if [ "${{ matrix.test.slug }}" = "ollama" ]; then
+              if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+                echo "✅ Ollama ready after ${ELAPSED}s!"
+                exit 0
+              fi
+            fi
+            
+            # Проверяем ML Service
+            if [ "${{ matrix.test.slug }}" = "ml-service" ]; then
+              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "✅ ML Service ready after ${ELAPSED}s!"
+                exit 0
+              fi
+            fi
+            
+            # Прогресс каждые 30с
+            if [ $((ELAPSED % 30)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+              echo "⌛ Still waiting... (${ELAPSED}s / ${{ matrix.test.timeout }}s)"
+              docker compose ps
+            fi
+            
+            sleep 2
+          done
+          
+          echo "❌ Timeout after ${{ matrix.test.timeout }}s"
+          docker compose logs --tail=50
+          exit 1
+      
+      - name: 🧪 Test ML endpoint
+        id: test
+        if: matrix.test.slug == 'ml-service'
+        run: |
+          echo "Testing ML Service API..."
+          curl -v http://localhost:8000/health | tee /tmp/ml-${{ matrix.test.slug }}-test.log
+        continue-on-error: true
+      
+      - name: 📊 Save metrics
+        if: always()
+        run: |
+          mkdir -p /tmp/logs
+          
+          END_TIME=$(date +%s)
+          START_TIME=${{ steps.timer.outputs.start_time }}
+          DURATION=$((END_TIME - START_TIME))
+          
+          cp /tmp/ml-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/ml-${{ matrix.test.slug }}-test.log
+          docker compose logs ${{ matrix.test.services }} > /tmp/logs/ml-${{ matrix.test.slug }}-container.log 2>&1 || true
+          
+          jq -n \
+            --arg job "ml-${{ matrix.test.slug }}" \
+            --arg test_name "${{ matrix.test.name }}" \
+            --arg status "${{ job.status }}" \
+            --argjson start "$START_TIME" \
+            --argjson end "$END_TIME" \
+            --argjson duration "$DURATION" \
+            --arg exit_code "${{ steps.test.outcome }}" \
+            '{job: $job, test_name: $test_name, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code}' \
+            > /tmp/logs/ml-${{ matrix.test.slug }}-metrics.json
+      
+      - name: 💾 Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-logs-ml-${{ matrix.test.slug }}
+          path: /tmp/logs/
+          retention-days: 1
+      
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
+
   e2e-tests:
     name: 🎯 E2E Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     needs: fast-validation
     outputs:
       duration: ${{ steps.save.outputs.duration }}
@@ -398,47 +519,35 @@ jobs:
       - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
-          # Database & Cache
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          
-          # n8n Authentication
           N8N_USER=${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          
-          # Tor Control
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          
-          # Monitoring
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
-          
-          # Optional API Keys
-          FIRECRAWL_API_KEY=
-          JINA_API_KEY=
           EOF
-          echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start stack (parallel)
+      - name: 🚀 Start stack (optimized)
         run: |
           docker compose up -d postgres redis
-          sleep 10
+          sleep 8
           docker compose up -d n8n
       
-      - name: ⏱️ Wait for n8n (max 3 min)
+      - name: ⏱️ Wait for n8n (FAST - max 60s)
         run: |
           echo "⌛ Waiting for n8n..."
           START=$(date +%s)
           
-          for i in {1..90}; do
+          for i in {1..60}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
                curl -sf http://localhost:5678 > /dev/null 2>&1; then
               ELAPSED=$(($(date +%s) - START))
               echo "✅ n8n ready after ${ELAPSED}s"
               exit 0
             fi
-            [ $((i % 15)) -eq 0 ] && echo "⌛ Waiting... ($((i * 2))s)"
-            sleep 2
+            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting... (${i}s)"
+            sleep 1
           done
           
           echo "❌ Timeout"
@@ -502,7 +611,7 @@ jobs:
   n8n-integration:
     name: 🌐 Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     needs: [smoke-tests, essential-tests]
     outputs:
       duration: ${{ steps.save.outputs.duration }}
@@ -526,47 +635,35 @@ jobs:
       - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
-          # Database & Cache
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          
-          # n8n Authentication
           N8N_USER=${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          
-          # Tor Control
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          
-          # Monitoring
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
-          
-          # Optional API Keys
-          FIRECRAWL_API_KEY=
-          JINA_API_KEY=
           EOF
-          echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start n8n (parallel)
+      - name: 🚀 Start n8n (optimized)
         run: |
           docker compose up -d postgres redis
-          sleep 10
+          sleep 8
           docker compose up -d n8n
       
-      - name: 🔍 Verify (max 3 min)
+      - name: 🔍 Verify (FAST - max 60s)
         run: |
           echo "⌛ Verifying n8n..."
           START=$(date +%s)
           
-          for i in {1..90}; do
+          for i in {1..60}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
                curl -sf http://localhost:5678 > /dev/null 2>&1; then
               ELAPSED=$(($(date +%s) - START))
               echo "✅ Accessible after ${ELAPSED}s"
               exit 0
             fi
-            [ $((i % 15)) -eq 0 ] && echo "⌛ Waiting... ($((i * 2))s)"
-            sleep 2
+            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting... (${i}s)"
+            sleep 1
           done
           
           echo "❌ Failed"
@@ -626,8 +723,8 @@ jobs:
   master-e2e:
     name: 🏆 Master E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 18
-    needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration]
+    timeout-minutes: 15
+    needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services]
     outputs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
@@ -650,51 +747,39 @@ jobs:
       - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
-          # Database & Cache
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          
-          # n8n Authentication
           N8N_USER=${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          
-          # Tor Control
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          
-          # Monitoring
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
-          
-          # Optional API Keys
-          FIRECRAWL_API_KEY=
-          JINA_API_KEY=
           EOF
-          echo "✅ .env file created from GitHub Secrets"
       
       - name: 🚀 Start full stack (optimized)
         run: |
           # Запускаем в правильном порядке
           docker compose up -d postgres redis
-          sleep 15
+          sleep 12
           docker compose up -d n8n
-          sleep 10
+          sleep 8
           docker compose up -d tor prometheus grafana
       
-      - name: ⏱️ Wait for services (max 4 min)
+      - name: ⏱️ Wait for services (max 90s)
         run: |
           echo "⌛ Waiting for all services..."
           START=$(date +%s)
           
           # Ждем n8n
-          for i in {1..120}; do
+          for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
                curl -sf http://localhost:5678 > /dev/null 2>&1; then
               ELAPSED=$(($(date +%s) - START))
               echo "✅ n8n ready after ${ELAPSED}s"
               break
             fi
-            [ $((i % 20)) -eq 0 ] && echo "⌛ n8n starting... ($((i * 2))s)"
-            sleep 2
+            [ $((i % 15)) -eq 0 ] && echo "⌛ n8n starting... (${i}s)"
+            sleep 1
           done
           
           # Проверяем все сервисы
@@ -759,7 +844,7 @@ jobs:
   ctrf-report:
     name: 📊 Final Report
     runs-on: ubuntu-latest
-    needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, master-e2e]
+    needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services, master-e2e]
     if: always()
     steps:
       - name: 📊 Checkout
@@ -783,7 +868,6 @@ jobs:
       
       - name: 📊 Parse metrics
         run: |
-          # Используем jq -s для корректного слияния JSONов
           if ls logs/*-metrics.json 1> /dev/null 2>&1; then
             jq -s '.' logs/*-metrics.json > /tmp/all-metrics.json 2>/dev/null || echo "[]" > /tmp/all-metrics.json
           else
@@ -798,7 +882,6 @@ jobs:
         run: |
           mkdir -p logs
           
-          # Упрощенная экстракция ошибок
           for logfile in logs/*-test.log; do
             if [ -f "$logfile" ]; then
               echo "=== $(basename $logfile) ==="
@@ -818,11 +901,12 @@ jobs:
           [ "${{ needs.fast-validation.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.smoke-tests.result }}" == "success" ] && PASSED=$((PASSED + 5)) || FAILED=$((FAILED + 5))
           [ "${{ needs.essential-tests.result }}" == "success" ] && PASSED=$((PASSED + 2)) || FAILED=$((FAILED + 2))
+          [ "${{ needs.ml-services.result }}" == "success" ] && PASSED=$((PASSED + 2)) || FAILED=$((FAILED + 2))
           [ "${{ needs.e2e-tests.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          SUCCESS_RATE=$((PASSED * 100 / 11))
+          SUCCESS_RATE=$((PASSED * 100 / 13))
           
           echo "PASSED=$PASSED" >> $GITHUB_ENV
           echo "FAILED=$FAILED" >> $GITHUB_ENV
@@ -834,7 +918,6 @@ jobs:
           DURATION_MASTER=${{ needs.master-e2e.outputs.duration }}
           TOTAL_DURATION=$((DURATION_FAST + DURATION_E2E + DURATION_INTEGRATION + DURATION_MASTER))
           
-          # Генерируем CTRF отчет
           jq -n \
             --argjson passed "$PASSED" \
             --argjson failed "$FAILED" \
@@ -843,7 +926,7 @@ jobs:
             --arg sha "${{ github.sha }}" \
             '{
               summary: {
-                tests: 11,
+                tests: 13,
                 passed: $passed,
                 failed: $failed,
                 duration: ($total_duration * 1000)
@@ -853,7 +936,7 @@ jobs:
                   name: "GitHub Actions CI"
                 },
                 summary: {
-                  tests: 11,
+                  tests: 13,
                   passed: $passed,
                   failed: $failed,
                   pending: 0,
@@ -897,13 +980,14 @@ jobs:
       - name: 📝 Generate diagnostic
         run: |
           cat > logs/diagnostic.md << EOF
-          # CI/CD Report
+          # CI/CD Report (TURBO)
           
           ## Results
           
           - Fast Validation: ${{ needs.fast-validation.result }}
           - Smoke Tests: ${{ needs.smoke-tests.result }}
           - Essential Tests: ${{ needs.essential-tests.result }}
+          - ML Services: ${{ needs.ml-services.result }}
           - E2E Tests: ${{ needs.e2e-tests.result }}
           - Integration: ${{ needs.n8n-integration.result }}
           - Master E2E: ${{ needs.master-e2e.result }}
