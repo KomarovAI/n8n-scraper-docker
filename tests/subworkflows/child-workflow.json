@@ -1,0 +1,54 @@
+{
+  "name": "Child Workflow - Calculator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple calculator logic\nconst input = $input.first().json;\nconst a = input.a || 0;\nconst b = input.b || 0;\n\nreturn {\n  json: {\n    sum: a + b,\n    product: a * b,\n    difference: a - b,\n    status: 'calculated',\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "calculate-node",
+      "name": "Calculate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Calculate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "child-v1",
+  "meta": {
+    "instanceId": "test"
+  },
+  "tags": [
+    {
+      "name": "test"
+    },
+    {
+      "name": "subworkflow"
+    }
+  ]
+}
