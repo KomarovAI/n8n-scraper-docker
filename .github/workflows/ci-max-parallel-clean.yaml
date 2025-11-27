@@ -647,6 +647,11 @@ jobs:
           
           SUCCESS_RATE=$((PASSED * 100 / 12))
           
+          # Экспортируем переменные для следующих шагов через $GITHUB_ENV
+          echo "PASSED=$PASSED" >> $GITHUB_ENV
+          echo "FAILED=$FAILED" >> $GITHUB_ENV
+          echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_ENV
+          
           ERROR_FAST=$(sed -n '2p' logs/errors-detailed.txt)
           ERROR_SMOKE=$(sed -n '5p' logs/errors-detailed.txt)
           ERROR_ESSENTIAL=$(sed -n '8p' logs/errors-detailed.txt)
@@ -757,14 +762,14 @@ jobs:
           printf "| E2E Tests | ${{ needs.e2e-tests.result }} | ${DURATION_E2E:-0}s |\n" >> logs/diagnostic.md
           printf "| Integration | ${{ needs.n8n-integration.result }} | ${DURATION_INTEGRATION:-0}s |\n" >> logs/diagnostic.md
           printf "| Master E2E | ${{ needs.master-e2e.result }} | ${DURATION_MASTER:-0}s |\n\n" >> logs/diagnostic.md
-          printf "## Quick Stats\n\n- **Total Tests**: 12\n- **Passed**: %s\n- **Failed**: %s\n- **Success Rate**: %s%%\n" "$PASSED" "$FAILED" "$SUCCESS_RATE" >> logs/diagnostic.md
+          printf "## Quick Stats\n\n- **Total Tests**: 12\n- **Passed**: %s\n- **Failed**: %s\n- **Success Rate**: %s%%\n" "${{ env.PASSED }}" "${{ env.FAILED }}" "${{ env.SUCCESS_RATE }}" >> logs/diagnostic.md
           
           echo "Diagnostic report generated"
       
       - name: 📝 Summary
         run: |
           printf "Workflow: ci-max-parallel-clean\nRun: ${{ github.run_number }}\nRun ID: ${{ github.run_id }}\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref_name }}\nActor: ${{ github.actor }}\nRepository: ${{ github.repository }}\nTime: %s\n\nResults: %s passed, %s failed\nSuccess Rate: %s%%\n" \
-            "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "$PASSED" "$FAILED" "$SUCCESS_RATE" \
+            "$(date -u +'%Y-%m-%d %H:%M:%S UTC')" "${{ env.PASSED }}" "${{ env.FAILED }}" "${{ env.SUCCESS_RATE }}" \
             > logs/workflow-info.txt
           
           ls -1 logs/ > logs/index.txt
