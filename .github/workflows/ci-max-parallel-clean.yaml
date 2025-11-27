@@ -673,6 +673,10 @@ jobs:
           [ "${{ needs.n8n-integration.result }}" == "success" ] && STATUS_INTEGRATION="passed"
           [ "${{ needs.master-e2e.result }}" == "success" ] && STATUS_MASTER="passed"
           
+          # Вычисляем временные метки в bash, не в jq
+          START_MS=$(( ($(date +%s) - 900) * 1000 ))
+          STOP_MS=$(( $(date +%s) * 1000 ))
+          
           jq -n \
             --argjson passed "$PASSED" \
             --argjson failed "$FAILED" \
@@ -698,6 +702,8 @@ jobs:
             --arg ref "${{ github.ref_name }}" \
             --arg sha "${{ github.sha }}" \
             --arg repository "${{ github.repository }}" \
+            --argjson start_ms "$START_MS" \
+            --argjson stop_ms "$STOP_MS" \
             '{
               results: {
                 tool: {name: "n8n-scraper-docker", version: "3.0.0"},
@@ -708,8 +714,8 @@ jobs:
                   pending: 0,
                   skipped: 0,
                   other: 0,
-                  start: (now - 900) * 1000 | floor,
-                  stop: now * 1000 | floor
+                  start: $start_ms,
+                  stop: $stop_ms
                 },
                 tests: [
                   {name: "Fast Validation", status: $status_fast, duration: ($duration_fast * 1000), message: $error_fast, extra: {job_result: $status_fast}},
