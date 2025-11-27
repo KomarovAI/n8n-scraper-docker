@@ -1,4 +1,55 @@
-# ✅ FIX: Dockerfile с cheerio, axios, puppeteer-cluster и всеми зависимостями
+# ✅ КРИТИЧЕСКИЙ ФИХ: Multi-stage build для условного копирования
+# Проблема: COPY не поддерживает shell redirects (2>/dev/null || echo)
+# Решение: Builder stage с RUN + условной логикой
+
+# ===== BUILDER STAGE =====
+FROM n8nio/n8n:latest as builder
+
+USER root
+WORKDIR /tmp/build
+
+# Копируем весь build context
+COPY . .
+
+# Подготавливаем структуру и условно копируем директории
+RUN mkdir -p /home/node/.n8n/nodes /home/node/.n8n/utils \
+             /home/node/.n8n/monitoring /home/node/.n8n/workflows \
+             /home/node/.n8n/scrapers && \
+    echo "Copying existing directories..." && \
+    if [ -d "nodes" ]; then \
+        echo "✓ Found nodes/"; \
+        cp -r nodes/* /home/node/.n8n/nodes/ 2>/dev/null || true; \
+    else \
+        echo "✗ No nodes/ directory"; \
+    fi && \
+    if [ -d "utils" ]; then \
+        echo "✓ Found utils/"; \
+        cp -r utils/* /home/node/.n8n/utils/ 2>/dev/null || true; \
+    else \
+        echo "✗ No utils/ directory"; \
+    fi && \
+    if [ -d "monitoring" ]; then \
+        echo "✓ Found monitoring/"; \
+        cp -r monitoring/* /home/node/.n8n/monitoring/ 2>/dev/null || true; \
+    else \
+        echo "✗ No monitoring/ directory"; \
+    fi && \
+    if [ -d "workflows" ]; then \
+        echo "✓ Found workflows/"; \
+        cp -r workflows/* /home/node/.n8n/workflows/ 2>/dev/null || true; \
+    else \
+        echo "✗ No workflows/ directory"; \
+    fi && \
+    if [ -d "scrapers" ]; then \
+        echo "✓ Found scrapers/"; \
+        cp -r scrapers/* /home/node/.n8n/scrapers/ 2>/dev/null || true; \
+    else \
+        echo "✗ No scrapers/ directory"; \
+    fi && \
+    chown -R node:node /home/node/.n8n && \
+    echo "Build context prepared successfully"
+
+# ===== FINAL STAGE =====
 FROM n8nio/n8n:latest
 
 # Install system dependencies for Puppeteer
@@ -15,16 +66,19 @@ RUN apk add --no-cache \
     redis \
     postgresql-client
 
-# Set Puppeteer env vars
+# Set Puppeteer env vars BEFORE npm install
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    NODE_PATH=/home/node/.n8n/node_modules
 
 # Switch to n8n user
 USER node
 WORKDIR /home/node/.n8n
 
-# ✅ FIX #1: Локальная установка зависимостей (npm install --prefix)
-# Вместо npm install -g который n8n не видел
+# Copy prepared structure from builder
+COPY --from=builder --chown=node:node /home/node/.n8n /home/node/.n8n
+
+# Install npm dependencies locally
 RUN npm install --prefix /home/node/.n8n \
     axios@^1.6.0 \
     cheerio@^1.0.0-rc.12 \
@@ -46,24 +100,8 @@ RUN npm install --prefix /home/node/.n8n \
     @opentelemetry/instrumentation-express@^0.35.0 \
     @opentelemetry/api@^1.7.0
 
-# ✅ FIX #2: Копирование только существующих директорий с graceful handling
-# Custom nodes (если есть)
-COPY --chown=node:node nodes* /home/node/.n8n/nodes/ 2>/dev/null || echo "No custom nodes found, skipping..."
-
-# Utilities (если есть)
-COPY --chown=node:node utils* /home/node/.n8n/utils/ 2>/dev/null || echo "No utils found, skipping..."
-
-# Monitoring configs (если есть)
-COPY --chown=node:node monitoring* /home/node/.n8n/monitoring/ 2>/dev/null || echo "No monitoring configs found, skipping..."
-
-# Workflows (если есть)
-COPY --chown=node:node workflows* /home/node/.n8n/workflows/ 2>/dev/null || echo "No workflows found, skipping..."
-
-# Scrapers (если есть)
-COPY --chown=node:node scrapers* /home/node/.n8n/scrapers/ 2>/dev/null || echo "No scrapers found, skipping..."
-
-# ✅ FIX #3: Healthcheck с большим start-period для медленных сред
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+# Healthcheck синхронизирован с docker-compose.yml (90s start-period)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1
 
 # Expose N8N port
@@ -75,8 +113,7 @@ ENV N8N_METRICS=true \
     GENERIC_TIMEZONE=Europe/Moscow \
     EXECUTIONS_DATA_SAVE_ON_ERROR=all \
     EXECUTIONS_DATA_SAVE_ON_SUCCESS=all \
-    EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true \
-    NODE_PATH=/home/node/.n8n/node_modules
+    EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
 
 # Run N8N
 CMD ["n8n"]
