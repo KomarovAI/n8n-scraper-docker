@@ -2,7 +2,7 @@
 # Проблема: COPY не поддерживает 2>/dev/null || true
 # Решение: Простое COPY для существующих директорий
 
-FROM n8nio/n8n:1.18.0-alpine
+FROM n8nio/n8n:1.121.3
 
 # Install system dependencies for Puppeteer (Alpine пакеты)
 USER root
