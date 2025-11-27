@@ -221,7 +221,7 @@ services:
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: true
       N8N_METRICS: true
       N8N_DIAGNOSTICS_ENABLED: false
-      # ML Service endpoint for n8n
+      # ML Service endpoint for n8n (optional)
       ML_SERVICE_URL: http://ml-service:8000
     volumes:
       - n8n-data:/home/node/.n8n
@@ -231,8 +231,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ml-service:
-        condition: service_healthy
+      # ml-service removed - it's optional!
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:5678/healthz"]
       interval: 30s
