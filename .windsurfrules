@@ -1,0 +1,40 @@
+# Windsurf AI Rules
+
+# This repository uses unified AI instructions.
+# See .github/copilot-instructions.md for complete guidelines.
+
+## Repository Context
+
+**Stack:** n8n + Docker Compose (8 microservices)  
+**Status:** AI-optimized, production-ready  
+**Optimization:** -48% docs, 100% functionality  
+
+## Follow These Rules
+
+1. Minimal documentation (signal-focused)
+2. Token-efficient code (self-documenting)
+3. Follow existing patterns
+4. Maintain AI optimization
+5. Test everything
+
+## Primary Instructions
+
+→ `.github/copilot-instructions.md` (complete guide)  
+→ `AI_MANIFEST.md` (AI consumption guide)  
+→ `.ai-optimized` (optimization marker)  
+
+## Quick Reference
+
+```bash
+# Start: docker-compose up -d --build
+# Test: .github/workflows/ci-test.yml
+# Logs: docker-compose logs -f [service]
+```
+
+**Architecture:** README.md  
+**Quick Start:** QUICKSTART.md  
+**Tech Docs:** docs/INDEX.md  
+
+---
+
+🧠 AI-Optimized | Follow unified instructions
