@@ -1,0 +1,80 @@
+{
+  "name": "Test Webhook - Health Check",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-hook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "test-webhook-id"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate webhook payload\nconst payload = $input.first().json;\n\nif (!payload) {\n  throw new Error('No payload received');\n}\n\nreturn {\n  json: {\n    status: 'success',\n    message: 'Webhook received and processed',\n    receivedData: payload,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "process-node",
+      "name": "Process Webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "respond-node",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "webhook-test-v1",
+  "meta": {
+    "instanceId": "test"
+  },
+  "tags": [
+    {
+      "name": "test"
+    },
+    {
+      "name": "webhook"
+    }
+  ]
+}
