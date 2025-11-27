@@ -848,7 +848,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # Job 17: AI-Powered Test Summary with CTRF Reporter + DOWNLOADABLE RAW REPORT
+  # Job 17: AI-Powered Test Summary with CTRF Reporter + FIXED COUNTING
   test-summary:
     name: 📊 AI Test Summary
     runs-on: ubuntu-latest
@@ -879,11 +879,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate test results summary
+      - name: Debug job results
+        run: |
+          echo "🔍 Debugging test results:"
+          echo "validate-compose: ${{ needs.validate-compose.result }}"
+          echo "lint-dockerfiles: ${{ needs.lint-dockerfiles.result }}"
+          echo "check-shell-scripts: ${{ needs.check-shell-scripts.result }}"
+          echo "trivy-scan: ${{ needs.trivy-scan.result }}"
+          echo "secret-scan: ${{ needs.secret-scan.result }}"
+          echo "build-n8n: ${{ needs.build-n8n.result }}"
+          echo "build-ml-service: ${{ needs.build-ml-service.result }}"
+          echo "smoke-test: ${{ needs.smoke-test.result }}"
+          echo "combined-service-test: ${{ needs.combined-service-test.result }}"
+          echo "test-tor: ${{ needs.test-tor.result }}"
+          echo "database-migration-test: ${{ needs.database-migration-test.result }}"
+          echo "light-performance-test: ${{ needs.light-performance-test.result }}"
+          echo "n8n-e2e-test: ${{ needs.n8n-e2e-test.result }}"
+          echo "test-webhooks: ${{ needs.test-webhooks.result }}"
+          echo "test-subworkflows: ${{ needs.test-subworkflows.result }}"
+
+      - name: Calculate test results
+        id: results
+        run: |
+          PASSED=0
+          FAILED=0
+          
+          # Count each test individually
+          [ "${{ needs.validate-compose.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.lint-dockerfiles.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.check-shell-scripts.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.trivy-scan.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.secret-scan.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.build-n8n.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.build-ml-service.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.smoke-test.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.combined-service-test.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.test-tor.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.database-migration-test.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.light-performance-test.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.n8n-e2e-test.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.test-webhooks.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.test-subworkflows.result }}" = "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          
+          TOTAL=$((PASSED + FAILED))
+          SUCCESS_RATE=$((PASSED * 100 / TOTAL))
+          
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
+          
+          echo "📊 Calculated Results:"
+          echo "Total: $TOTAL"
+          echo "Passed: $PASSED"
+          echo "Failed: $FAILED"
+          echo "Success Rate: $SUCCESS_RATE%"
+
+      - name: Generate CTRF test results
         run: |
           mkdir -p ctrf
           
-          # Создаём CTRF JSON формат с результатами всех тестов
+          # Generate CTRF JSON with correct counts
           cat > ctrf/test-results.json << EOF
           {
             "results": {
@@ -891,9 +947,9 @@ jobs:
                 "name": "n8n-scraper-docker CI/CD"
               },
               "summary": {
-                "tests": 15,
-                "passed": ${{ needs.validate-compose.result == 'success' && needs.lint-dockerfiles.result == 'success' && needs.check-shell-scripts.result == 'success' && needs.trivy-scan.result == 'success' && needs.secret-scan.result == 'success' && needs.build-n8n.result == 'success' && needs.build-ml-service.result == 'success' && needs.smoke-test.result == 'success' && needs.combined-service-test.result == 'success' && needs.test-tor.result == 'success' && needs.database-migration-test.result == 'success' && needs.light-performance-test.result == 'success' && needs.n8n-e2e-test.result == 'success' && needs.test-webhooks.result == 'success' && needs.test-subworkflows.result == 'success' && 15 || 0 }},
-                "failed": ${{ needs.validate-compose.result == 'success' && needs.lint-dockerfiles.result == 'success' && needs.check-shell-scripts.result == 'success' && needs.trivy-scan.result == 'success' && needs.secret-scan.result == 'success' && needs.build-n8n.result == 'success' && needs.build-ml-service.result == 'success' && needs.smoke-test.result == 'success' && needs.combined-service-test.result == 'success' && needs.test-tor.result == 'success' && needs.database-migration-test.result == 'success' && needs.light-performance-test.result == 'success' && needs.n8n-e2e-test.result == 'success' && needs.test-webhooks.result == 'success' && needs.test-subworkflows.result == 'success' && 0 || 15 }},
+                "tests": ${{ steps.results.outputs.total }},
+                "passed": ${{ steps.results.outputs.passed }},
+                "failed": ${{ steps.results.outputs.failed }},
                 "pending": 0,
                 "skipped": 0,
                 "other": 0,
@@ -942,7 +998,7 @@ jobs:
                   "duration": 30000
                 },
                 {
-                  "name": "Combined Service Test (Health + Integration)",
+                  "name": "Combined Service Test",
                   "status": "${{ needs.combined-service-test.result == 'success' && 'passed' || 'failed' }}",
                   "duration": 180000
                 },
@@ -981,10 +1037,10 @@ jobs:
           }
           EOF
 
-      - name: 🚀 Create AI-Ready Summary Report
+      - name: Create AI-Ready Summary
         run: |
-          # Создаём human-readable отчёт для нейронки
-          cat > ctrf/AI-READY-SUMMARY.md << 'AIEOF'
+          # REMOVED single quotes from AIEOF to enable interpolation
+          cat > ctrf/AI-READY-SUMMARY.md << AIEOF
           # CI/CD Test Results - AI Analysis Report
           
           ## Metadata
@@ -997,10 +1053,10 @@ jobs:
           - **Timestamp**: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
           
           ## Summary Statistics
-          - **Total Tests**: 15
-          - **Passed**: ${{ needs.validate-compose.result == 'success' && needs.lint-dockerfiles.result == 'success' && needs.check-shell-scripts.result == 'success' && needs.trivy-scan.result == 'success' && needs.secret-scan.result == 'success' && needs.build-n8n.result == 'success' && needs.build-ml-service.result == 'success' && needs.smoke-test.result == 'success' && needs.combined-service-test.result == 'success' && needs.test-tor.result == 'success' && needs.database-migration-test.result == 'success' && needs.light-performance-test.result == 'success' && needs.n8n-e2e-test.result == 'success' && needs.test-webhooks.result == 'success' && needs.test-subworkflows.result == 'success' && '15' || '0' }}
-          - **Failed**: ${{ needs.validate-compose.result == 'success' && needs.lint-dockerfiles.result == 'success' && needs.check-shell-scripts.result == 'success' && needs.trivy-scan.result == 'success' && needs.secret-scan.result == 'success' && needs.build-n8n.result == 'success' && needs.build-ml-service.result == 'success' && needs.smoke-test.result == 'success' && needs.combined-service-test.result == 'success' && needs.test-tor.result == 'success' && needs.database-migration-test.result == 'success' && needs.light-performance-test.result == 'success' && needs.n8n-e2e-test.result == 'success' && needs.test-webhooks.result == 'success' && needs.test-subworkflows.result == 'success' && '0' || '15' }}
-          - **Success Rate**: ${{ needs.validate-compose.result == 'success' && needs.lint-dockerfiles.result == 'success' && needs.check-shell-scripts.result == 'success' && needs.trivy-scan.result == 'success' && needs.secret-scan.result == 'success' && needs.build-n8n.result == 'success' && needs.build-ml-service.result == 'success' && needs.smoke-test.result == 'success' && needs.combined-service-test.result == 'success' && needs.test-tor.result == 'success' && needs.database-migration-test.result == 'success' && needs.light-performance-test.result == 'success' && needs.n8n-e2e-test.result == 'success' && needs.test-webhooks.result == 'success' && needs.test-subworkflows.result == 'success' && '100%' || '0%' }}
+          - **Total Tests**: ${{ steps.results.outputs.total }}
+          - **Passed**: ${{ steps.results.outputs.passed }}
+          - **Failed**: ${{ steps.results.outputs.failed }}
+          - **Success Rate**: ${{ steps.results.outputs.success_rate }}%
           
           ## Test Results Breakdown
           
@@ -1022,33 +1078,12 @@ jobs:
           | Webhook Tests | ${{ needs.test-webhooks.result == 'success' && '✅ PASS' || '❌ FAIL' }} | 1m 0s |
           | Subworkflow Tests | ${{ needs.test-subworkflows.result == 'success' && '✅ PASS' || '❌ FAIL' }} | 1m 0s |
           
-          ## CI/CD Optimizations Applied
-          - ⚡ Merged health + integration tests (-4 min)
-          - ⚡ Removed redundant config tests (-2 min)
-          - ⚡ Shared build artifacts (-1 min)
-          - ⭐ Added critical migration test
-          - ⭐ Added performance regression test
-          - ⚡ Skip duplicate actions
-          - ⚡ Paths-ignore for docs
-          - 🤖 AI-powered test reporting
-          
-          ## Performance Metrics
-          - **Total Jobs**: 14 (was 16, -2 optimized)
-          - **Execution Time**: ~6 min (was 9 min, -33%)
-          - **Test Coverage**: 24 tests (was 22, +2 critical)
-          - **Redundancy**: <5% (was ~30%)
-          - **Best Practices**: 9/9 (100%)
-          
-          ## Files for AI Analysis
-          1. `test-results.json` - Raw CTRF format
-          2. `AI-READY-SUMMARY.md` - This human-readable summary
-          
           ## GitHub Actions Links
           - **Workflow Run**: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           - **Commit**: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
           AIEOF
 
-      - name: 📊 Upload RAW Test Report (Downloadable)
+      - name: Upload RAW Test Report
         uses: actions/upload-artifact@v4
         with:
           name: ctrf-test-report-${{ github.run_number }}
@@ -1058,66 +1093,23 @@ jobs:
           retention-days: 30
         if: always()
 
-      - name: 🤖 CTRF AI Test Reporter
+      - name: CTRF AI Test Reporter
         uses: ctrf-io/github-test-reporter@v1
         with:
           report-path: './ctrf/*.json'
         if: always()
 
-      - name: Check all test results
+      - name: Report final status
         run: |
-          echo "🎉 All CI/CD tests completed!"
+          echo "📊 CI/CD Test Summary"
+          echo "====================="
+          echo "Total Tests: ${{ steps.results.outputs.total }}"
+          echo "Passed: ${{ steps.results.outputs.passed }}"
+          echo "Failed: ${{ steps.results.outputs.failed }}"
+          echo "Success Rate: ${{ steps.results.outputs.success_rate }}%"
           echo ""
-          echo "📊 Test Results:"
-          echo "  ✅ Docker Compose Validation"
-          echo "  ✅ Dockerfile Linting"
-          echo "  ✅ Shell Script Checks"
-          echo "  ✅ Trivy Security Scan"
-          echo "  ✅ Secret Detection"
-          echo "  ✅ n8n-enhanced Build"
-          echo "  ✅ ML Service Build"
-          echo "  ✅ Smoke Test 🔥"
-          echo "  ✅ Combined Service Test 🔬 (health + integration)"
-          echo "  ✅ Tor Connectivity"
-          echo "  ⭐ Database Migration Test (NEW!)"
-          echo "  ⚡ Light Performance Test (NEW!)"
-          echo "  ✅ n8n Workflow E2E Test"
-          echo "  ✅ Webhook Tests 🔗"
-          echo "  ✅ Subworkflow Tests 🔗"
-          echo ""
-          echo "🚀 Optimizations Applied:"
-          echo "  ⚡ Merged health + integration tests (-4 min)"
-          echo "  ⚡ Removed redundant config tests (-2 min)"
-          echo "  ⚡ Shared build artifacts (-1 min)"
-          echo "  ⭐ Added critical migration test"
-          echo "  ⭐ Added performance regression test"
-          echo "  ⚡ Skip duplicate actions"
-          echo "  ⚡ Paths-ignore for docs"
-          echo "  🤖 AI-powered test reporting"
-          echo ""
-          echo "📊 Results:"
-          echo "  Jobs: 16 → 14 (-2)"
-          echo "  Time: 9 min → 6 min (-33%)"
-          echo "  Coverage: 22 → 24 (+2 critical)"
-          echo "  AI: CTRF Reporter integrated 🤖"
-          echo ""
-          echo "🚀 Ready for deployment!"
-          echo ""
-          echo "📦 Download RAW report from Actions artifacts tab!"
-
-      - name: Report status
-        run: |
-          if [ "${{ needs.validate-compose.result }}" = "success" ] && \
-             [ "${{ needs.lint-dockerfiles.result }}" = "success" ] && \
-             [ "${{ needs.trivy-scan.result }}" = "success" ] && \
-             [ "${{ needs.build-n8n.result }}" = "success" ] && \
-             [ "${{ needs.smoke-test.result }}" = "success" ] && \
-             [ "${{ needs.combined-service-test.result }}" = "success" ] && \
-             [ "${{ needs.database-migration-test.result }}" = "success" ] && \
-             [ "${{ needs.light-performance-test.result }}" = "success" ] && \
-             [ "${{ needs.n8n-e2e-test.result }}" = "success" ] && \
-             [ "${{ needs.test-webhooks.result }}" = "success" ] && \
-             [ "${{ needs.test-subworkflows.result }}" = "success" ]; then
+          
+          if [ "${{ steps.results.outputs.failed }}" -eq 0 ]; then
             echo "✅ ALL TESTS PASSED - PRODUCTION READY"
           else
             echo "❌ SOME TESTS FAILED - CHECK LOGS"
