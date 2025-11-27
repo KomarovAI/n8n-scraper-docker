@@ -1,93 +1,30 @@
-# ✅ КРИТИЧЕСКИЙ ФИКС: Debian-based пакеты для n8n:latest
-# Проблема: n8nio/n8n:latest теперь НЕ Alpine (NODE 22), apk не работает
-# Решение: apt-get вместо apk, chromium-browser вместо chromium
+# ✅ ОТКАТ: Стабильная Alpine-based версия n8n
+# Проблема: n8nio/n8n:latest имеет неизвестные ограничения
+# Решение: Явный Alpine тег 1.18.0
 
-# ===== BUILDER STAGE =====
-FROM n8nio/n8n:latest as builder
+FROM n8nio/n8n:1.18.0-alpine
 
+# Install system dependencies for Puppeteer (Alpine пакеты)
 USER root
-WORKDIR /tmp/build
-
-# Копируем весь build context
-COPY . .
-
-# Подготавливаем структуру и условно копируем директории
-RUN mkdir -p /home/node/.n8n/nodes /home/node/.n8n/utils \
-             /home/node/.n8n/monitoring /home/node/.n8n/workflows \
-             /home/node/.n8n/scrapers && \
-    echo "Copying existing directories..." && \
-    if [ -d "nodes" ]; then \
-        echo "✓ Found nodes/"; \
-        cp -r nodes/* /home/node/.n8n/nodes/ 2>/dev/null || true; \
-    else \
-        echo "✗ No nodes/ directory"; \
-    fi && \
-    if [ -d "utils" ]; then \
-        echo "✓ Found utils/"; \
-        cp -r utils/* /home/node/.n8n/utils/ 2>/dev/null || true; \
-    else \
-        echo "✗ No utils/ directory"; \
-    fi && \
-    if [ -d "monitoring" ]; then \
-        echo "✓ Found monitoring/"; \
-        cp -r monitoring/* /home/node/.n8n/monitoring/ 2>/dev/null || true; \
-    else \
-        echo "✗ No monitoring/ directory"; \
-    fi && \
-    if [ -d "workflows" ]; then \
-        echo "✓ Found workflows/"; \
-        cp -r workflows/* /home/node/.n8n/workflows/ 2>/dev/null || true; \
-    else \
-        echo "✗ No workflows/ directory"; \
-    fi && \
-    if [ -d "scrapers" ]; then \
-        echo "✓ Found scrapers/"; \
-        cp -r scrapers/* /home/node/.n8n/scrapers/ 2>/dev/null || true; \
-    else \
-        echo "✗ No scrapers/ directory"; \
-    fi && \
-    chown -R node:node /home/node/.n8n && \
-    echo "Build context prepared successfully"
-
-# ===== FINAL STAGE =====
-FROM n8nio/n8n:latest
-
-# Install system dependencies for Puppeteer (✅ Debian/Ubuntu пакеты)
-USER root
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     chromium \
-    chromium-driver \
-    fonts-liberation \
-    libappindicator3-1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    wget \
-    xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    nodejs \
+    npm \
+    wget
 
-# Set Puppeteer env vars BEFORE npm install (✅ путь для Debian)
+# Set Puppeteer env vars BEFORE npm install
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     NODE_PATH=/home/node/.n8n/node_modules
 
 # Switch to n8n user
 USER node
 WORKDIR /home/node/.n8n
-
-# Copy prepared structure from builder
-COPY --from=builder --chown=node:node /home/node/.n8n /home/node/.n8n
 
 # Install npm dependencies locally
 RUN npm install --prefix /home/node/.n8n \
@@ -100,16 +37,16 @@ RUN npm install --prefix /home/node/.n8n \
     ghost-cursor@^1.1.19 \
     winston@^3.11.0 \
     redis@^4.6.0 \
-    prom-client@^15.1.0 \
-    @opentelemetry/sdk-trace-node@^1.19.0 \
-    @opentelemetry/resources@^1.19.0 \
-    @opentelemetry/semantic-conventions@^1.19.0 \
-    @opentelemetry/exporter-jaeger@^1.19.0 \
-    @opentelemetry/sdk-trace-base@^1.19.0 \
-    @opentelemetry/instrumentation@^0.46.0 \
-    @opentelemetry/instrumentation-http@^0.46.0 \
-    @opentelemetry/instrumentation-express@^0.35.0 \
-    @opentelemetry/api@^1.7.0
+    prom-client@^15.1.0
+
+# Copy custom directories (если есть)
+USER root
+COPY --chown=node:node nodes /home/node/.n8n/nodes/ 2>/dev/null || true
+COPY --chown=node:node utils /home/node/.n8n/utils/ 2>/dev/null || true
+COPY --chown=node:node monitoring /home/node/.n8n/monitoring/ 2>/dev/null || true
+COPY --chown=node:node workflows /home/node/.n8n/workflows/ 2>/dev/null || true
+COPY --chown=node:node scrapers /home/node/.n8n/scrapers/ 2>/dev/null || true
+USER node
 
 # Healthcheck синхронизирован с docker-compose.yml (90s start-period)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
