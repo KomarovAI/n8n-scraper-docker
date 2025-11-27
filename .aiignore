@@ -1,0 +1,115 @@
+# .aiignore - AI Context Optimization
+# Этот файл исключает ненужные файлы из AI context
+
+# Build artifacts & Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+poetry.lock
+
+# Docker
+.dockerignore
+*.log
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs & Temp files
+*.log
+logs/
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Test coverage
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+db/data/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+Thumbs.db
+.DS_Store
+._*
+
+# Git
+.git/
+.gitattributes
+
+# CI/CD artifacts
+.github/workflows/.ctrf/
+ctrf/
+*.zip
+*.tar.gz
+
+# Binary & Media files (не нужны AI)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.ico
+*.pdf
+*.mp4
+*.mp3
+*.wav
+
+# Monitoring data (слишком большие)
+monitoring/data/
+prometheus_data/
+grafana_data/
+
+# Large generated files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# AI-specific: focus on code & docs only
+# Нейросеть должна видеть только:
+# - Source code (.py, .js, .ts, .yml, .yaml, .json, .sh)
+# - Documentation (.md)
+# - Configuration files (.env.example, docker-compose.yml, Dockerfile)
