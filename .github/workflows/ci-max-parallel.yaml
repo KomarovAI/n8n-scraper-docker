@@ -63,16 +63,9 @@ jobs:
         run: |
           echo "🛠️  Building n8n-enhanced image..."
           docker build \
-            --cache-from=type=local,src=/tmp/.buildx-cache \
-            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
             -f Dockerfile.n8n-enhanced \
             -t n8n-enhanced:test . 2>&1 | tee /tmp/docker-build.log
           echo "✅ Docker build successful"
-      
-      - name: 💾 Move Docker cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       
       - name: 📦 Save Docker image as artifact
         run: |
@@ -93,13 +86,14 @@ jobs:
           echo "fast-validation/build.log" > logs/index.txt
           echo "Status: ${{ job.status }}" > logs/fast-validation/status.txt
       
-      - name: 📤 Upload to combined artifact
+      - name: 📤 Upload fast-validation logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-complete
+          name: ci-artifacts-fast-validation
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
 
   # Job 2: Smoke tests (maximum parallelization)
   smoke-tests:
@@ -188,13 +182,14 @@ jobs:
           echo "smoke-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
           echo "smoke-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined artifact
+      - name: 📤 Upload smoke test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-complete
+          name: ci-artifacts-smoke-${{ matrix.test.slug }}
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
       
       - name: 🧹 Cleanup
         if: always()
@@ -273,13 +268,14 @@ jobs:
           echo "essential-${{ matrix.test.slug }}/docker-logs.log" >> logs/index.txt
           echo "essential-${{ matrix.test.slug }}/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined artifact
+      - name: 📤 Upload essential test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-complete
+          name: ci-artifacts-essential-${{ matrix.test.slug }}
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
       
       - name: 🧹 Cleanup
         if: always()
@@ -358,13 +354,14 @@ jobs:
           echo "e2e/docker-n8n.log" >> logs/index.txt
           echo "e2e/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined artifact
+      - name: 📤 Upload e2e test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-complete
+          name: ci-artifacts-e2e
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
       
       - name: 🧹 Cleanup
         if: always()
@@ -435,13 +432,14 @@ jobs:
           echo "integration/docker-postgres.log" >> logs/index.txt
           echo "integration/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined artifact
+      - name: 📤 Upload integration test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-complete
+          name: ci-artifacts-integration
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
       
       - name: 🧹 Cleanup
         if: always()
@@ -517,13 +515,14 @@ jobs:
           echo "master/docker-prometheus.log" >> logs/index.txt
           echo "master/test-output.log" >> logs/index.txt
       
-      - name: 📤 Upload to combined artifact
+      - name: 📤 Upload master test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts-complete
+          name: ci-artifacts-master
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
       
       - name: 🧹 Cleanup
         if: always()
@@ -539,14 +538,26 @@ jobs:
       - name: 📊 Checkout code
         uses: actions/checkout@v4
       
-      - name: 📥 Download unified logs artifact
+      - name: 📥 Download ALL artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ci-artifacts-complete
-          path: logs/
+          pattern: ci-artifacts-*
+          path: all-artifacts/
+          merge-multiple: true
         continue-on-error: true
       
-      - name: 📋 Show log structure
+      - name: 🔀 Merge all logs into unified structure
+        run: |
+          mkdir -p logs
+          # Объединяем все скачанные артефакты в одну директорию logs/
+          if [ -d "all-artifacts" ]; then
+            cp -r all-artifacts/* logs/ 2>/dev/null || echo "No artifacts to merge"
+          fi
+          
+          echo "📦 Merged artifact structure:"
+          tree logs/ || find logs/ -type f
+      
+      - name: 📜 Show log structure
         run: |
           echo "📦 Complete artifact structure:"
           tree logs/ || find logs/ -type f
@@ -865,4 +876,5 @@ jobs:
           name: ci-artifacts-complete
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
         if: always()
