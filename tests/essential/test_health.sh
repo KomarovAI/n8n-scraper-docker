@@ -17,9 +17,8 @@ NC='\033[0m' # No Color
 
 FAILED_TESTS=0
 TOTAL_TESTS=0
-SKIPPED_TESTS=0
 
-# Функция проверки сервиса (обязательный)
+# Функция проверки сервиса
 check_service() {
     local service_name=$1
     local url=$2
@@ -37,30 +36,6 @@ check_service() {
     else
         echo -e "${RED}❌ FAIL${NC} (Expected HTTP $expected_code, got HTTP $http_code)"
         FAILED_TESTS=$((FAILED_TESTS + 1))
-    fi
-}
-
-# Функция проверки опционального сервиса
-check_service_optional() {
-    local service_name=$1
-    local url=$2
-    local expected_code=$3
-    
-    TOTAL_TESTS=$((TOTAL_TESTS + 1))
-    
-    echo -n "[Тест $TOTAL_TESTS] Проверка $service_name... "
-    
-    # Проверяем HTTP ответ
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null || echo "000")
-    
-    if [ "$http_code" = "$expected_code" ]; then
-        echo -e "${GREEN}✅ OK${NC} (HTTP $http_code)"
-    elif [ "$http_code" = "000" ]; then
-        echo -e "${YELLOW}⏭️  SKIPPED${NC} (Service not running)"
-        SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
-    else
-        echo -e "${YELLOW}⚠️  WARNING${NC} (Expected HTTP $expected_code, got HTTP $http_code)"
-        SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
     fi
 }
 
@@ -95,29 +70,26 @@ echo ""
 echo "🌐 Проверка HTTP эндпоинтов..."
 echo "----------------------------------------"
 
-# Проверяем обязательные сервисы
+# Проверяем доступность сервисов
 check_service "n8n" "http://localhost:5678/" "200"
-
-# Проверяем опциональные сервисы (не падаем если их нет)
-check_service_optional "Prometheus" "http://localhost:9090/-/healthy" "200"
-check_service_optional "Grafana" "http://localhost:3000/api/health" "200"
+check_service "Prometheus" "http://localhost:9090/-/healthy" "200"
+check_service "Grafana" "http://localhost:3000/api/health" "200"
 
 echo ""
 echo "========================================"
 echo "📊 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ"
 echo "========================================"
 echo "Всего тестов: $TOTAL_TESTS"
-echo -e "Успешных: ${GREEN}$((TOTAL_TESTS - FAILED_TESTS - SKIPPED_TESTS))${NC}"
+echo -e "Успешных: ${GREEN}$((TOTAL_TESTS - FAILED_TESTS))${NC}"
 echo -e "Проваленных: ${RED}$FAILED_TESTS${NC}"
-echo -e "Пропущенных: ${YELLOW}$SKIPPED_TESTS${NC}"
 echo ""
 
 if [ $FAILED_TESTS -eq 0 ]; then
-    echo -e "${GREEN}✅ ВСЕ ОБЯЗАТЕЛЬНЫЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!${NC}"
+    echo -e "${GREEN}✅ ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!${NC}"
     echo ""
     exit 0
 else
-    echo -e "${RED}❌ НЕКОТОРЫЕ ОБЯЗАТЕЛЬНЫЕ ТЕСТЫ ПРОВАЛЕНЫ!${NC}"
+    echo -e "${RED}❌ НЕКОТОРЫЕ ТЕСТЫ ПРОВАЛЕНЫ!${NC}"
     echo ""
     echo "🔍 Рекомендации:"
     echo "  1. Проверьте статус контейнеров: docker-compose ps"
