@@ -15,7 +15,7 @@ google-generativeai==0.8.5
 aiohttp==3.13.2
 
 # Redis (async) for caching
-redis[hiredis]==5.0.1
+redis[hiredis]==7.1.0
 
 # Logging
 loguru==0.7.2
