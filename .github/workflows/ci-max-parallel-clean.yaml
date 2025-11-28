@@ -1,5 +1,8 @@
 name: 🚀 CI/CD Maximum Parallel (Turbo)
 
+# SECURITY: CVE-2025-62725 - Ensure Docker Compose v2.40.2+ (path traversal fix)
+# https://nvd.nist.gov/vuln/detail/CVE-2025-62725
+
 on:
   push:
     branches: [ main, develop ]
@@ -709,11 +712,157 @@ jobs:
           [ ! -f .env ] && touch .env
           docker compose down -v
 
+  n8n-workflow-tests:
+    name: 🧪 n8n Workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: fast-validation
+    outputs:
+      duration: ${{ steps.save.outputs.duration }}
+      passed: ${{ steps.save.outputs.passed }}
+      failed: ${{ steps.save.outputs.failed }}
+      success_rate: ${{ steps.save.outputs.success_rate }}
+    steps:
+      - name: 📊 Checkout
+        uses: actions/checkout@v4
+      
+      - name: ⏱️ Start timer
+        id: timer
+        run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+      
+      - name: 📥 Download image
+        uses: actions/download-artifact@v4
+        with:
+          name: n8n-enhanced-image
+          path: /tmp
+      
+      - name: 📦 Load image
+        run: docker load < /tmp/n8n-enhanced.tar.gz
+      
+      - name: 📝 Create .env from secrets
+        run: |
+          cat > .env << EOF
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          EOF
+      
+      - name: 🚀 Start n8n stack
+        run: |
+          docker compose up -d postgres redis
+          sleep 10
+          docker compose up -d n8n
+      
+      - name: ⏱️ Wait for n8n
+        run: |
+          echo "⌛ Waiting for n8n..."
+          for i in {1..60}; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
+               curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              echo "✅ n8n ready after ${i}s"
+              exit 0
+            fi
+            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting... (${i}s)"
+            sleep 1
+          done
+          echo "❌ n8n failed to start"
+          docker compose logs --tail=50 n8n
+          exit 1
+      
+      - name: 🧪 Test n8n workflows
+        id: test
+        run: |
+          chmod +x scripts/test-n8n-workflows.sh
+          
+          export N8N_URL="http://localhost:5678"
+          export N8N_USER="${{ secrets.N8N_USER_CI }}"
+          export N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}"
+          export WEBHOOK_PATH="/webhook-test/scrape"
+          export TEST_TIMEOUT="30"
+          export REPORT_FILE="/tmp/n8n-workflow-test-results.json"
+          
+          bash scripts/test-n8n-workflows.sh 2>&1 | tee /tmp/n8n-workflow-test.log
+        continue-on-error: true
+      
+      - name: 📊 Parse test results
+        id: parse
+        if: always()
+        run: |
+          if [ -f "/tmp/n8n-workflow-test-results.json" ]; then
+            PASSED=$(jq -r '.summary.passed' /tmp/n8n-workflow-test-results.json)
+            FAILED=$(jq -r '.summary.failed' /tmp/n8n-workflow-test-results.json)
+            SUCCESS_RATE=$(jq -r '.summary.success_rate' /tmp/n8n-workflow-test-results.json)
+            
+            echo "PASSED=$PASSED" >> $GITHUB_OUTPUT
+            echo "FAILED=$FAILED" >> $GITHUB_OUTPUT
+            echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_OUTPUT
+            
+            echo "📊 n8n Workflow Tests:"
+            echo "  Passed: $PASSED"
+            echo "  Failed: $FAILED"
+            echo "  Success Rate: ${SUCCESS_RATE}%"
+          else
+            echo "PASSED=0" >> $GITHUB_OUTPUT
+            echo "FAILED=0" >> $GITHUB_OUTPUT
+            echo "SUCCESS_RATE=0" >> $GITHUB_OUTPUT
+            echo "⚠️ No test results file found"
+          fi
+      
+      - name: 📊 Save metrics
+        id: save
+        if: always()
+        run: |
+          mkdir -p /tmp/logs
+          
+          END_TIME=$(date +%s)
+          START_TIME=${{ steps.timer.outputs.start_time }}
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          echo "passed=${{ steps.parse.outputs.PASSED }}" >> $GITHUB_OUTPUT
+          echo "failed=${{ steps.parse.outputs.FAILED }}" >> $GITHUB_OUTPUT
+          echo "success_rate=${{ steps.parse.outputs.SUCCESS_RATE }}" >> $GITHUB_OUTPUT
+          
+          cp /tmp/n8n-workflow-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/n8n-workflow-test.log
+          cp /tmp/n8n-workflow-test-results.json /tmp/logs/ 2>/dev/null || echo "{}" > /tmp/logs/n8n-workflow-test-results.json
+          docker compose logs n8n > /tmp/logs/n8n-workflow-n8n.log 2>&1 || true
+          
+          jq -n \
+            --arg job "n8n-workflows" \
+            --arg status "${{ job.status }}" \
+            --argjson start "$START_TIME" \
+            --argjson end "$END_TIME" \
+            --argjson duration "$DURATION" \
+            --arg exit_code "${{ steps.test.outcome }}" \
+            --argjson passed "${{ steps.parse.outputs.PASSED }}" \
+            --argjson failed "${{ steps.parse.outputs.FAILED }}" \
+            --argjson success_rate "${{ steps.parse.outputs.SUCCESS_RATE }}" \
+            '{job: $job, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code, passed: $passed, failed: $failed, success_rate: $success_rate}' \
+            > /tmp/logs/n8n-workflows-metrics.json
+      
+      - name: 💾 Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-logs-n8n-workflows
+          path: /tmp/logs/
+          retention-days: 1
+      
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
+
   master-e2e:
     name: 🏆 Master E2E
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services]
+    needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services, n8n-workflow-tests]
     outputs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
@@ -833,7 +982,7 @@ jobs:
   ctrf-report:
     name: 📊 Final Report
     runs-on: ubuntu-latest
-    needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services, master-e2e]
+    needs: [fast-validation, smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services, n8n-workflow-tests, master-e2e]
     if: always()
     steps:
       - name: 📊 Checkout
@@ -893,9 +1042,10 @@ jobs:
           [ "${{ needs.ml-services.result }}" == "success" ] && PASSED=$((PASSED + 2)) || FAILED=$((FAILED + 2))
           [ "${{ needs.e2e-tests.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          [ "${{ needs.n8n-workflow-tests.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          SUCCESS_RATE=$((PASSED * 100 / 13))
+          SUCCESS_RATE=$((PASSED * 100 / 14))
           
           echo "PASSED=$PASSED" >> $GITHUB_ENV
           echo "FAILED=$FAILED" >> $GITHUB_ENV
@@ -904,8 +1054,9 @@ jobs:
           DURATION_FAST=${{ needs.fast-validation.outputs.duration }}
           DURATION_E2E=${{ needs.e2e-tests.outputs.duration }}
           DURATION_INTEGRATION=${{ needs.n8n-integration.outputs.duration }}
+          DURATION_WORKFLOWS=${{ needs.n8n-workflow-tests.outputs.duration }}
           DURATION_MASTER=${{ needs.master-e2e.outputs.duration }}
-          TOTAL_DURATION=$((DURATION_FAST + DURATION_E2E + DURATION_INTEGRATION + DURATION_MASTER))
+          TOTAL_DURATION=$((DURATION_FAST + DURATION_E2E + DURATION_INTEGRATION + DURATION_WORKFLOWS + DURATION_MASTER))
           
           jq -n \
             --argjson passed "$PASSED" \
@@ -915,7 +1066,7 @@ jobs:
             --arg sha "${{ github.sha }}" \
             '{
               summary: {
-                tests: 13,
+                tests: 14,
                 passed: $passed,
                 failed: $failed,
                 duration: ($total_duration * 1000)
@@ -925,7 +1076,7 @@ jobs:
                   name: "GitHub Actions CI"
                 },
                 summary: {
-                  tests: 13,
+                  tests: 14,
                   passed: $passed,
                   failed: $failed,
                   pending: 0,
@@ -969,7 +1120,7 @@ jobs:
       - name: 📝 Generate diagnostic
         run: |
           cat > logs/diagnostic.md << EOF
-          # CI/CD Report (TURBO)
+          # CI/CD Report (TURBO + n8n Workflows)
           
           ## Results
           
@@ -979,6 +1130,7 @@ jobs:
           - ML Services: ${{ needs.ml-services.result }}
           - E2E Tests: ${{ needs.e2e-tests.result }}
           - Integration: ${{ needs.n8n-integration.result }}
+          - n8n Workflows: ${{ needs.n8n-workflow-tests.result }}
           - Master E2E: ${{ needs.master-e2e.result }}
           
           ## Stats
@@ -986,6 +1138,12 @@ jobs:
           - Passed: ${PASSED:-0}
           - Failed: ${FAILED:-0}
           - Rate: ${SUCCESS_RATE:-0}%
+          
+          ## n8n Workflow Tests Details
+          
+          - Passed: ${{ needs.n8n-workflow-tests.outputs.passed }}
+          - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
+          - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
           EOF
           
           echo "Diagnostic generated"
