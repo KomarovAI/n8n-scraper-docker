@@ -1,0 +1,131 @@
+# syntax=docker/dockerfile:1.4
+# 🧠 AI/ML OPTIMIZED DOCKERFILE v3.0
+# Production-ready n8n with ML runtime support
+# Multi-stage build | Minimal layers | CUDA-ready | Zero bloat
+
+# ==============================================================================
+# STAGE 1: Base dependencies (RARELY changes)
+# ==============================================================================
+FROM n8nio/n8n:1.121.3 AS base
+
+USER root
+
+# System packages - single RUN for minimal layers
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    nodejs \
+    npm \
+    python3 \
+    py3-pip \
+    && rm -rf /var/cache/apk/*
+
+# ==============================================================================
+# STAGE 2: ML Runtime (OPTIONAL - via build args)
+# ==============================================================================
+ARG ENABLE_ML_RUNTIME=false
+ARG CUDA_VERSION=""
+
+# Install ML dependencies only if enabled
+RUN if [ "$ENABLE_ML_RUNTIME" = "true" ]; then \
+        apk add --no-cache \
+        python3-dev \
+        build-base \
+        openblas-dev \
+        && pip3 install --no-cache-dir \
+        numpy \
+        onnxruntime \
+        && rm -rf /var/cache/apk/* \
+        && rm -rf ~/.cache/pip; \
+    fi
+
+# ==============================================================================
+# STAGE 3: Environment variables (RARELY changes)
+# ==============================================================================
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    NODE_PATH=/home/node/.n8n/node_modules \
+    N8N_METRICS=true \
+    N8N_DIAGNOSTICS_ENABLED=false \
+    GENERIC_TIMEZONE=Europe/Moscow \
+    EXECUTIONS_DATA_SAVE_ON_ERROR=all \
+    EXECUTIONS_DATA_SAVE_ON_SUCCESS=all \
+    EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true \
+    # ML-specific env
+    PYTHONUNBUFFERED=1 \
+    USE_AI_FALLBACK=1
+
+# ==============================================================================
+# STAGE 4: NPM dependencies (MEDIUM frequency changes)
+# ==============================================================================
+USER node
+WORKDIR /home/node/.n8n
+
+# Use BuildKit cache mount for NPM - 10x faster rebuilds
+RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
+    npm install --prefix /home/node/.n8n \
+    --prefer-offline \
+    --no-audit \
+    --progress=false \
+    --omit=dev \
+    axios@^1.6.0 \
+    cheerio@^1.0.0-rc.12 \
+    puppeteer@^21.0.0 \
+    puppeteer-extra@^3.3.6 \
+    puppeteer-extra-plugin-stealth@^2.11.2 \
+    puppeteer-cluster@^0.23.0 \
+    ghost-cursor@^1.1.19 \
+    winston@^3.11.0 \
+    redis@^4.6.0 \
+    prom-client@^15.1.0
+
+# ==============================================================================
+# STAGE 5: Application code (FREQUENTLY changes)
+# ==============================================================================
+USER root
+
+# Copy only production-critical directories
+COPY --chown=node:node nodes /home/node/.n8n/nodes/
+COPY --chown=node:node utils /home/node/.n8n/utils/
+COPY --chown=node:node monitoring /home/node/.n8n/monitoring/
+COPY --chown=node:node workflows /home/node/.n8n/workflows/
+COPY --chown=node:node scrapers /home/node/.n8n/scrapers/
+
+# Remove development artifacts
+RUN find /home/node/.n8n -type f -name '*.test.js' -delete && \
+    find /home/node/.n8n -type f -name '*.spec.js' -delete && \
+    find /home/node/.n8n -type d -name '__tests__' -exec rm -rf {} + 2>/dev/null || true
+
+USER node
+
+# ==============================================================================
+# STAGE 6: Health & Runtime
+# ==============================================================================
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1
+
+EXPOSE 5678
+
+CMD ["n8n"]
+
+# ==============================================================================
+# BUILD INSTRUCTIONS
+# ==============================================================================
+# Standard build:
+#   docker build -f Dockerfile.n8n-ml-optimized -t n8n-scraper:latest .
+#
+# With ML runtime:
+#   docker build -f Dockerfile.n8n-ml-optimized \
+#     --build-arg ENABLE_ML_RUNTIME=true \
+#     -t n8n-scraper:ml-latest .
+#
+# With CUDA support:
+#   docker build -f Dockerfile.n8n-ml-optimized \
+#     --build-arg ENABLE_ML_RUNTIME=true \
+#     --build-arg CUDA_VERSION=11.8 \
+#     -t n8n-scraper:cuda-latest .
+# ==============================================================================

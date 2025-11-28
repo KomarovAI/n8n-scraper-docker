@@ -222,7 +222,7 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n postgres redis" }
+          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n postgres redis prometheus grafana" }
           - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n postgres redis" }
     steps:
       - name: 📊 Checkout
@@ -265,16 +265,16 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🚀 Start services (optimized)
+      - name: 🚀 Start services (optimized order)
         run: |
           # Запускаем postgres+redis сначала
           docker compose up -d postgres redis
           echo "Waiting for database..."
           sleep 8
           
-          # Теперь запускаем n8n (без ml-service - мгновенный старт!)
-          docker compose up -d n8n
-          echo "n8n started, waiting for initialization..."
+          # Теперь n8n и мониторинг
+          docker compose up -d ${{ matrix.test.services }}
+          echo "Services started, waiting for initialization..."
       
       - name: ⏱️ Wait for n8n (FAST - max 60s)
         run: |
@@ -295,7 +295,7 @@ jobs:
             # Прогресс каждые 10с
             if [ $((i % 10)) -eq 0 ]; then
               echo "⌛ Still waiting... (${ELAPSED}s elapsed)"
-              docker compose ps n8n postgres redis
+              docker compose ps n8n postgres redis prometheus grafana 2>/dev/null || true
             fi
             
             sleep 1
