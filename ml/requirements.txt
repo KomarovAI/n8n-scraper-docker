@@ -18,7 +18,7 @@ aiohttp==3.13.2
 redis[hiredis]==7.1.0
 
 # Logging
-loguru==0.7.2
+loguru==0.7.3
 
 # Optional: Hugging Face (free tier)
 # transformers==4.35.2
