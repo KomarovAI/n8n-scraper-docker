@@ -28,7 +28,7 @@ jobs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -124,7 +124,7 @@ jobs:
           - { name: "Grafana", slug: "grafana", script: "tests/smoke/test_monitoring.sh", services: "grafana" }
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -229,7 +229,7 @@ jobs:
           - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n postgres redis" }
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -374,7 +374,7 @@ jobs:
           - { name: "ML Service", slug: "ml-service", services: "ollama redis ml-service", timeout: 480 }
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -498,7 +498,7 @@ jobs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -609,7 +609,7 @@ jobs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -724,7 +724,7 @@ jobs:
       success_rate: ${{ steps.save.outputs.success_rate }}
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -867,7 +867,7 @@ jobs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: ⏱️ Start timer
         id: timer
@@ -986,7 +986,7 @@ jobs:
     if: always()
     steps:
       - name: 📊 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: 📥 Download logs
         uses: actions/download-artifact@v4
