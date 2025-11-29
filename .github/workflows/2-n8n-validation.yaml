@@ -217,6 +217,14 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
+      - name: 🗑️ Force clean n8n data
+        run: |
+          echo "🗑️ Removing old volumes with stale credentials..."
+          docker volume rm n8n-scraper-docker_n8n-data 2>/dev/null || true
+          docker volume rm n8n-scraper-docker_postgres-data 2>/dev/null || true
+          docker volume rm n8n-scraper-docker_redis-data 2>/dev/null || true
+          echo "✅ Volumes cleaned - will create fresh with current secrets"
+      
       - name: 🚀 Start n8n stack
         run: |
           docker compose up -d postgres redis
