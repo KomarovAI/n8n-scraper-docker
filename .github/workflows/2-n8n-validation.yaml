@@ -80,32 +80,33 @@ jobs:
       
       - name: 🚀 Start services
         run: |
-          docker compose up -d postgres redis
+          # Use CI override to force n8n-enhanced:test image
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
           sleep 12
-          docker compose up -d ${{ matrix.test.services }}
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d ${{ matrix.test.services }}
       
       - name: ⏳ Wait for n8n
         run: |
           START=$(date +%s)
           for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              docker compose ps
+              docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
               exit 0
             fi
-            [ $((i % 10)) -eq 0 ] && docker compose ps n8n postgres redis 2>/dev/null || true
+            [ $((i % 10)) -eq 0 ] && docker compose -f docker-compose.yml -f docker-compose.ci.yml ps n8n postgres redis 2>/dev/null || true
             sleep 1
           done
-          docker compose ps
-          docker compose logs --tail=100 n8n
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
           exit 1
       
       - name: 📊 Start monitoring stack
         if: matrix.test.monitoring != ''
         run: |
           echo "Starting monitoring services: ${{ matrix.test.monitoring }}"
-          docker compose up -d ${{ matrix.test.monitoring }}
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d ${{ matrix.test.monitoring }}
           sleep 5
-          docker compose ps
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
       
       - name: 🧪 Run test
         id: test
@@ -146,7 +147,7 @@ jobs:
         if: failure()
         run: |
           # OPTIMIZATION: Logs ONLY on failure, gzipped
-          docker compose logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/essential-${{ matrix.test.slug }}-n8n.log.gz
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/essential-${{ matrix.test.slug }}-n8n.log.gz
       
       - name: 📤 Upload metrics
         if: always()
@@ -170,7 +171,7 @@ jobs:
         if: always()
         run: |
           [ ! -f .env ] && touch .env
-          docker compose down -v
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
           rm -rf ${{ env.LOGS_DIR }}
 
   n8n-workflow-tests:
@@ -219,9 +220,10 @@ jobs:
       
       - name: 🚀 Start n8n stack
         run: |
-          docker compose up -d postgres redis
+          # Use CI override to force n8n-enhanced:test image
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
           sleep 12
-          docker compose up -d n8n
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d n8n
       
       - name: ⏳ Wait for n8n
         run: |
@@ -229,13 +231,13 @@ jobs:
           for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
               sleep 5
-              docker compose ps
+              docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
               exit 0
             fi
-            [ $((i % 15)) -eq 0 ] && docker compose ps n8n postgres redis 2>/dev/null || true
+            [ $((i % 15)) -eq 0 ] && docker compose -f docker-compose.yml -f docker-compose.ci.yml ps n8n postgres redis 2>/dev/null || true
             sleep 1
           done
-          docker compose logs --tail=100 n8n
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
           exit 1
       
       - name: 📦 Import n8n workflows via API
@@ -250,7 +252,7 @@ jobs:
           bash scripts/import-n8n-workflows.sh
           EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
-            docker compose logs --tail=100 n8n
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
             exit $EXIT_CODE
           fi
       
@@ -270,7 +272,7 @@ jobs:
           bash scripts/test-n8n-workflows.sh
           EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
-            docker compose logs --tail=100 n8n
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
             exit $EXIT_CODE
           fi
       
@@ -333,7 +335,7 @@ jobs:
         if: failure()
         run: |
           # OPTIMIZATION: Logs ONLY on failure, gzipped
-          docker compose logs --tail=300 n8n | gzip > ${{ env.LOGS_DIR }}/workflows-n8n.log.gz
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=300 n8n | gzip > ${{ env.LOGS_DIR }}/workflows-n8n.log.gz
       
       - name: 📤 Upload metrics
         if: always()
@@ -357,7 +359,7 @@ jobs:
         if: always()
         run: |
           [ ! -f .env ] && touch .env
-          docker compose down -v
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
           rm -rf ${{ env.LOGS_DIR }}
 
   summary:
