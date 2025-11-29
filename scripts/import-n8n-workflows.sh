@@ -41,6 +41,13 @@ fi
 echo -e "${GREEN}✅ n8n is accessible${NC}"
 echo ""
 
+# Generate Basic Auth header
+echo "🔐 Setting up Basic Authentication..."
+BASIC_AUTH=$(echo -n "${N8N_USER}:${N8N_PASSWORD}" | base64)
+AUTH_HEADER="Authorization: Basic ${BASIC_AUTH}"
+echo -e "${GREEN}✅ Basic Auth header created${NC}"
+echo ""
+
 # Check n8n version and setup status
 echo "🔍 Checking n8n setup status..."
 SETUP_STATUS=$(curl -s "${N8N_URL}/rest/owner/setup-status" 2>&1)
@@ -50,10 +57,11 @@ if echo "$SETUP_STATUS" | grep -qi '"needsSetup".*true'; then
   echo ""
   echo "🔧 Creating owner user..."
   
-  # Setup owner
+  # Setup owner (uses Basic Auth)
   SETUP_RESPONSE=$(curl -s -X POST \
-    "${N8N_URL}/rest/owner/setup" \
+    -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
+    "${N8N_URL}/rest/owner/setup" \
     -d "{
       \"email\": \"${N8N_USER}\",
       \"password\": \"${N8N_PASSWORD}\",
@@ -72,36 +80,6 @@ if echo "$SETUP_STATUS" | grep -qi '"needsSetup".*true'; then
 else
   echo -e "${GREEN}✅ n8n owner already set up${NC}"
 fi
-echo ""
-
-# Get authentication cookie
-echo "🔐 Authenticating with n8n..."
-
-# Try /rest/login first (n8n v1.0+)
-LOGIN_RESPONSE=$(curl -s -c /tmp/n8n-cookies.txt -X POST \
-  "${N8N_URL}/rest/login" \
-  -H "Content-Type: application/json" \
-  -d "{ \"email\": \"${N8N_USER}\", \"password\": \"${N8N_PASSWORD}\" }" \
-  2>&1)
-
-if echo "$LOGIN_RESPONSE" | grep -qi "error\|unauthorized\|<!DOCTYPE"; then
-  echo -e "${YELLOW}⚠️  /rest/login failed, trying /login...${NC}"
-  
-  # Fallback to /login (older n8n versions)
-  LOGIN_RESPONSE=$(curl -s -c /tmp/n8n-cookies.txt -X POST \
-    "${N8N_URL}/login" \
-    -H "Content-Type: application/json" \
-    -d "{ \"email\": \"${N8N_USER}\", \"password\": \"${N8N_PASSWORD}\" }" \
-    2>&1)
-  
-  if echo "$LOGIN_RESPONSE" | grep -qi "error\|unauthorized"; then
-    echo -e "${RED}❌ Authentication failed!${NC}"
-    echo "Response: ${LOGIN_RESPONSE:0:200}"
-    exit 1
-  fi
-fi
-
-echo -e "${GREEN}✅ Authenticated successfully${NC}"
 echo ""
 
 # Count workflows
@@ -130,10 +108,12 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
   # Read workflow JSON
   WORKFLOW_JSON=$(cat "$workflow_file")
   
-  # Import workflow via API
-  IMPORT_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt -X POST \
-    "${N8N_URL}/rest/workflows" \
+  # Import workflow via API (using Basic Auth)
+  IMPORT_RESPONSE=$(curl -s \
+    -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
+    -X POST \
+    "${N8N_URL}/rest/workflows" \
     -d "$WORKFLOW_JSON" \
     2>&1)
   
@@ -145,10 +125,12 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
     if [ -n "$WORKFLOW_ID" ]; then
       echo -e "${GREEN}✅ Imported (ID: $WORKFLOW_ID)${NC}"
       
-      # Activate workflow
-      ACTIVATE_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt -X PATCH \
-        "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
+      # Activate workflow (using Basic Auth)
+      ACTIVATE_RESPONSE=$(curl -s \
+        -H "${AUTH_HEADER}" \
         -H "Content-Type: application/json" \
+        -X PATCH \
+        "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
         -d '{"active": true}' \
         2>&1)
       
@@ -156,6 +138,7 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
         echo "   ✅ Activated successfully"
       else
         echo -e "   ${YELLOW}⚠️  Failed to activate${NC}"
+        echo "   Response: ${ACTIVATE_RESPONSE:0:100}..."
       fi
       
       IMPORTED=$((IMPORTED + 1))
@@ -181,9 +164,6 @@ echo "  Total:    $WORKFLOW_COUNT"
 echo -e "  Imported: ${GREEN}$IMPORTED${NC}"
 echo -e "  Failed:   ${RED}$FAILED${NC}"
 echo ""
-
-# Cleanup
-rm -f /tmp/n8n-cookies.txt
 
 if [ $FAILED -eq 0 ]; then
   echo -e "${GREEN}🎉 All workflows imported successfully!${NC}"
