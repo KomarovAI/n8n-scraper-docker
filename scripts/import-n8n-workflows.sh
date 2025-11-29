@@ -7,6 +7,7 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo "📦 n8n Workflow Import & Activation"
@@ -26,6 +27,7 @@ fi
 
 echo "📊 Configuration:"
 echo "   n8n URL: $N8N_URL"
+echo "   n8n User: $N8N_USER"
 echo "   Workflows dir: $WORKFLOWS_DIR"
 echo ""
 
@@ -39,19 +41,66 @@ fi
 echo -e "${GREEN}✅ n8n is accessible${NC}"
 echo ""
 
+# Check n8n version and setup status
+echo "🔍 Checking n8n setup status..."
+SETUP_STATUS=$(curl -s "${N8N_URL}/rest/owner/setup-status" 2>&1)
+
+if echo "$SETUP_STATUS" | grep -qi '"needsSetup".*true'; then
+  echo -e "${YELLOW}⚠️  n8n owner not set up yet${NC}"
+  echo ""
+  echo "🔧 Creating owner user..."
+  
+  # Setup owner
+  SETUP_RESPONSE=$(curl -s -X POST \
+    "${N8N_URL}/rest/owner/setup" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"email\": \"${N8N_USER}\",
+      \"password\": \"${N8N_PASSWORD}\",
+      \"firstName\": \"CI\",
+      \"lastName\": \"User\"
+    }" \
+    2>&1)
+  
+  if echo "$SETUP_RESPONSE" | grep -qi '"id"'; then
+    echo -e "${GREEN}✅ Owner created successfully${NC}"
+  else
+    echo -e "${RED}❌ Failed to create owner${NC}"
+    echo "Response: $SETUP_RESPONSE"
+    exit 1
+  fi
+else
+  echo -e "${GREEN}✅ n8n owner already set up${NC}"
+fi
+echo ""
+
 # Get authentication cookie
 echo "🔐 Authenticating with n8n..."
+
+# Try /rest/login first (n8n v1.0+)
 LOGIN_RESPONSE=$(curl -s -c /tmp/n8n-cookies.txt -X POST \
   "${N8N_URL}/rest/login" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"${N8N_USER}\",\"password\":\"${N8N_PASSWORD}\"}" \
+  -d "{ \"email\": \"${N8N_USER}\", \"password\": \"${N8N_PASSWORD}\" }" \
   2>&1)
 
-if echo "$LOGIN_RESPONSE" | grep -qi "error\|unauthorized"; then
-  echo -e "${RED}❌ Authentication failed!${NC}"
-  echo "Response: $LOGIN_RESPONSE"
-  exit 1
+if echo "$LOGIN_RESPONSE" | grep -qi "error\|unauthorized\|<!DOCTYPE"; then
+  echo -e "${YELLOW}⚠️  /rest/login failed, trying /login...${NC}"
+  
+  # Fallback to /login (older n8n versions)
+  LOGIN_RESPONSE=$(curl -s -c /tmp/n8n-cookies.txt -X POST \
+    "${N8N_URL}/login" \
+    -H "Content-Type: application/json" \
+    -d "{ \"email\": \"${N8N_USER}\", \"password\": \"${N8N_PASSWORD}\" }" \
+    2>&1)
+  
+  if echo "$LOGIN_RESPONSE" | grep -qi "error\|unauthorized"; then
+    echo -e "${RED}❌ Authentication failed!${NC}"
+    echo "Response: ${LOGIN_RESPONSE:0:200}"
+    exit 1
+  fi
 fi
+
 echo -e "${GREEN}✅ Authenticated successfully${NC}"
 echo ""
 
@@ -112,6 +161,7 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
       IMPORTED=$((IMPORTED + 1))
     else
       echo -e "${RED}❌ Failed (no ID returned)${NC}"
+      echo "   Response: ${IMPORT_RESPONSE:0:100}..."
       FAILED=$((FAILED + 1))
     fi
   else
