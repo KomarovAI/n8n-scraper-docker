@@ -22,6 +22,7 @@ WORKFLOWS_DIR="${WORKFLOWS_DIR:-workflows}"
 POSTGRES_USER="${POSTGRES_USER:-scraper_user}"
 POSTGRES_DB="${POSTGRES_DB:-scraper_db}"
 MAX_MIGRATION_WAIT=60  # seconds
+MAX_AUTH_WAIT=60       # seconds for auth middleware init
 
 if [ -z "$N8N_PASSWORD" ]; then
   echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
@@ -255,6 +256,56 @@ if [ "$NEED_RESET" = true ]; then
     docker compose logs --tail=50 n8n
     exit 1
   fi
+  echo ""
+  
+  # ═══════════════════════════════════════════════════════════════
+  # CRITICAL: Wait for auth middleware to fully initialize
+  # Owner creation triggers async auth restart (10-15 seconds)
+  # ═══════════════════════════════════════════════════════════════
+  
+  echo "⏳ Allowing auth middleware to fully initialize (15s mandatory pause)..."
+  sleep 15
+  echo -e "${GREEN}✅ Initial auth initialization complete${NC}"
+  echo ""
+  
+  echo "⏳ Verifying full auth readiness via /api/v1/me endpoint..."
+  AUTH_READY_ATTEMPTS=0
+  AUTH_MAX_ATTEMPTS=20  # 20 × 3s = 60 seconds
+  AUTH_READY=false
+  
+  while [ $AUTH_READY_ATTEMPTS -lt $AUTH_MAX_ATTEMPTS ]; do
+    AUTH_READY_ATTEMPTS=$((AUTH_READY_ATTEMPTS + 1))
+    
+    # Check /api/v1/me - requires FULL auth initialization
+    ME_RESPONSE=$(curl -s -w "\n%{http_code}" \
+      -u "${N8N_USER}:${N8N_PASSWORD}" \
+      "${N8N_URL}/api/v1/me" 2>&1)
+    
+    ME_HTTP_CODE=$(echo "$ME_RESPONSE" | tail -n1)
+    
+    if [ "$ME_HTTP_CODE" -eq 200 ]; then
+      echo -e "${GREEN}✅ Auth middleware fully ready! (attempt $AUTH_READY_ATTEMPTS/$AUTH_MAX_ATTEMPTS)${NC}"
+      AUTH_READY=true
+      break
+    fi
+    
+    if [ $AUTH_READY_ATTEMPTS -eq $AUTH_MAX_ATTEMPTS ]; then
+      echo -e "${RED}❌ Auth middleware not ready after ${MAX_AUTH_WAIT} seconds!${NC}"
+      echo "Last HTTP code: $ME_HTTP_CODE"
+      echo ""
+      echo "Debug info:"
+      docker compose logs --tail=100 n8n
+      exit 1
+    fi
+    
+    echo "   ⏳ Auth initializing... (attempt $AUTH_READY_ATTEMPTS/$AUTH_MAX_ATTEMPTS, last code: $ME_HTTP_CODE)"
+    sleep 3
+  done
+  
+  if [ "$AUTH_READY" = false ]; then
+    echo -e "${RED}❌ Auth readiness verification failed!${NC}"
+    exit 1
+  fi
 fi
 echo ""
 
@@ -284,49 +335,90 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
   # Read workflow JSON
   WORKFLOW_JSON=$(cat "$workflow_file")
   
-  # Import workflow via API (using Basic Auth - no login session needed!)
-  IMPORT_RESPONSE=$(curl -s \
-    -H "${AUTH_HEADER}" \
-    -H "Content-Type: application/json" \
-    -X POST \
-    "${N8N_URL}/rest/workflows" \
-    -d "$WORKFLOW_JSON" \
-    2>&1)
+  # ═══════════════════════════════════════════════════════════════
+  # Import workflow with retry logic (handles remaining race conditions)
+  # ═══════════════════════════════════════════════════════════════
   
-  # Check if import succeeded
-  if echo "$IMPORT_RESPONSE" | grep -qi '"id"'; then
-    # Extract workflow ID
-    WORKFLOW_ID=$(echo "$IMPORT_RESPONSE" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+  IMPORT_SUCCESS=false
+  for RETRY_ATTEMPT in {1..3}; do
+    IMPORT_RESPONSE=$(curl -s -w "\n%{http_code}" \
+      -H "${AUTH_HEADER}" \
+      -H "Content-Type: application/json" \
+      -X POST \
+      "${N8N_URL}/rest/workflows" \
+      -d "$WORKFLOW_JSON" \
+      2>&1)
     
-    if [ -n "$WORKFLOW_ID" ]; then
-      echo -e "${GREEN}✅ Imported (ID: $WORKFLOW_ID)${NC}"
-      
-      # Activate workflow (using Basic Auth)
-      ACTIVATE_RESPONSE=$(curl -s \
-        -H "${AUTH_HEADER}" \
-        -H "Content-Type: application/json" \
-        -X PATCH \
-        "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
-        -d '{"active": true}' \
-        2>&1)
-      
-      if echo "$ACTIVATE_RESPONSE" | grep -qi '"active".*true'; then
-        echo "   ✅ Activated successfully"
-      else
-        echo -e "   ${YELLOW}⚠️  Failed to activate${NC}"
-        echo "   Response: ${ACTIVATE_RESPONSE:0:100}..."
-      fi
-      
-      IMPORTED=$((IMPORTED + 1))
+    IMPORT_HTTP_CODE=$(echo "$IMPORT_RESPONSE" | tail -n1)
+    IMPORT_BODY=$(echo "$IMPORT_RESPONSE" | sed '$d')
+    
+    if [ "$IMPORT_HTTP_CODE" -eq 200 ] || [ "$IMPORT_HTTP_CODE" -eq 201 ]; then
+      IMPORT_SUCCESS=true
+      break
+    elif [ "$IMPORT_HTTP_CODE" -eq 401 ] && [ "$RETRY_ATTEMPT" -lt 3 ]; then
+      # 401 = auth might still be warming up, retry with backoff
+      BACKOFF_TIME=$((RETRY_ATTEMPT * 2))
+      echo ""
+      echo "   ⚠️  Got 401, retrying in ${BACKOFF_TIME}s... (attempt $RETRY_ATTEMPT/3)"
+      sleep $BACKOFF_TIME
+      echo -n "   "
     else
-      echo -e "${RED}❌ Failed (no ID returned)${NC}"
-      echo "   Response: ${IMPORT_RESPONSE:0:100}..."
-      FAILED=$((FAILED + 1))
+      # Other error or max retries reached
+      break
     fi
-  else
-    echo -e "${RED}❌ Failed${NC}"
-    echo "   Response: ${IMPORT_RESPONSE:0:100}..."
+  done
+  
+  if [ "$IMPORT_SUCCESS" = false ]; then
+    echo -e "${RED}❌ Failed (HTTP $IMPORT_HTTP_CODE after $RETRY_ATTEMPT attempts)${NC}"
+    echo "   Response: ${IMPORT_BODY:0:150}..."
     FAILED=$((FAILED + 1))
+    continue
+  fi
+  
+  # Extract workflow ID
+  WORKFLOW_ID=$(echo "$IMPORT_BODY" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+  
+  if [ -z "$WORKFLOW_ID" ]; then
+    echo -e "${RED}❌ Failed (no ID returned)${NC}"
+    echo "   Response: ${IMPORT_BODY:0:100}..."
+    FAILED=$((FAILED + 1))
+    continue
+  fi
+  
+  echo -e "${GREEN}✅ Imported (ID: $WORKFLOW_ID)${NC}"
+  
+  # ═══════════════════════════════════════════════════════════════
+  # Activate workflow with retry logic
+  # ═══════════════════════════════════════════════════════════════
+  
+  ACTIVATE_SUCCESS=false
+  for RETRY_ATTEMPT in {1..2}; do
+    ACTIVATE_RESPONSE=$(curl -s -w "\n%{http_code}" \
+      -H "${AUTH_HEADER}" \
+      -H "Content-Type: application/json" \
+      -X PATCH \
+      "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
+      -d '{"active": true}' \
+      2>&1)
+    
+    ACTIVATE_HTTP_CODE=$(echo "$ACTIVATE_RESPONSE" | tail -n1)
+    ACTIVATE_BODY=$(echo "$ACTIVATE_RESPONSE" | sed '$d')
+    
+    if [ "$ACTIVATE_HTTP_CODE" -eq 200 ] && echo "$ACTIVATE_BODY" | grep -qi '"active".*true'; then
+      ACTIVATE_SUCCESS=true
+      break
+    elif [ "$RETRY_ATTEMPT" -lt 2 ]; then
+      sleep 2
+    fi
+  done
+  
+  if [ "$ACTIVATE_SUCCESS" = true ]; then
+    echo "   ✅ Activated successfully"
+    IMPORTED=$((IMPORTED + 1))
+  else
+    echo -e "   ${YELLOW}⚠️  Failed to activate (HTTP $ACTIVATE_HTTP_CODE)${NC}"
+    echo "   Response: ${ACTIVATE_BODY:0:100}..."
+    IMPORTED=$((IMPORTED + 1))  # Count as imported even if activation failed
   fi
   
   sleep 1
