@@ -1,7 +1,5 @@
 name: 🚀 CI/CD Turbo
 
-# CVE-2025-62725: Docker Compose v2.40.2+ required
-
 on:
   push:
     branches: [main, develop]
@@ -105,8 +103,6 @@ jobs:
           TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
           GRAFANA_USER=${GRAFANA_USER_CI}
           GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
-          FIRECRAWL_API_KEY=
-          JINA_API_KEY=
           EOF
       - run: docker compose up -d ${{ matrix.test.services }}
       - run: for i in {1..30}; do docker compose ps | grep -q "Up" && { sleep 5; break; }; sleep 2; done
@@ -165,8 +161,6 @@ jobs:
           TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
           GRAFANA_USER=${GRAFANA_USER_CI}
           GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
-          FIRECRAWL_API_KEY=
-          JINA_API_KEY=
           EOF
       - run: |
           docker compose up -d postgres redis
