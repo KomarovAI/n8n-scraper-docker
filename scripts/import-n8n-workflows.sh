@@ -1,0 +1,144 @@
+#!/bin/bash
+# Import n8n workflows via API and activate them
+# This ensures workflows are loaded and active for testing
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "📦 n8n Workflow Import & Activation"
+echo "═══════════════════════════════════════"
+echo ""
+
+# Configuration
+N8N_URL="${N8N_URL:-http://localhost:5678}"
+N8N_USER="${N8N_USER:-admin}"
+N8N_PASSWORD="${N8N_PASSWORD}"
+WORKFLOWS_DIR="${WORKFLOWS_DIR:-workflows}"
+
+if [ -z "$N8N_PASSWORD" ]; then
+  echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
+  exit 1
+fi
+
+echo "📊 Configuration:"
+echo "   n8n URL: $N8N_URL"
+echo "   Workflows dir: $WORKFLOWS_DIR"
+echo ""
+
+# Check n8n availability
+echo "🔍 Checking n8n availability..."
+if ! curl -sf "${N8N_URL}/healthz" > /dev/null 2>&1 && \
+   ! curl -sf "${N8N_URL}" > /dev/null 2>&1; then
+  echo -e "${RED}❌ n8n is not accessible at $N8N_URL${NC}"
+  exit 1
+fi
+echo -e "${GREEN}✅ n8n is accessible${NC}"
+echo ""
+
+# Get authentication cookie
+echo "🔐 Authenticating with n8n..."
+LOGIN_RESPONSE=$(curl -s -c /tmp/n8n-cookies.txt -X POST \
+  "${N8N_URL}/rest/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"${N8N_USER}\",\"password\":\"${N8N_PASSWORD}\"}" \
+  2>&1)
+
+if echo "$LOGIN_RESPONSE" | grep -qi "error\|unauthorized"; then
+  echo -e "${RED}❌ Authentication failed!${NC}"
+  echo "Response: $LOGIN_RESPONSE"
+  exit 1
+fi
+echo -e "${GREEN}✅ Authenticated successfully${NC}"
+echo ""
+
+# Count workflows
+WORKFLOW_COUNT=$(ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | wc -l)
+
+if [ "$WORKFLOW_COUNT" -eq 0 ]; then
+  echo -e "${RED}❌ No workflow files found in $WORKFLOWS_DIR/${NC}"
+  exit 1
+fi
+
+echo "📊 Found $WORKFLOW_COUNT workflow file(s)"
+echo ""
+
+# Import each workflow
+IMPORTED=0
+FAILED=0
+
+echo "📥 Importing workflows..."
+echo "───────────────────────────────────────"
+
+for workflow_file in "$WORKFLOWS_DIR"/*.json; do
+  WORKFLOW_NAME=$(basename "$workflow_file" .json)
+  
+  echo -n "[$(($IMPORTED + $FAILED + 1))/$WORKFLOW_COUNT] Importing $WORKFLOW_NAME ... "
+  
+  # Read workflow JSON
+  WORKFLOW_JSON=$(cat "$workflow_file")
+  
+  # Import workflow via API
+  IMPORT_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt -X POST \
+    "${N8N_URL}/rest/workflows" \
+    -H "Content-Type: application/json" \
+    -d "$WORKFLOW_JSON" \
+    2>&1)
+  
+  # Check if import succeeded
+  if echo "$IMPORT_RESPONSE" | grep -qi '"id"'; then
+    # Extract workflow ID
+    WORKFLOW_ID=$(echo "$IMPORT_RESPONSE" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+    
+    if [ -n "$WORKFLOW_ID" ]; then
+      echo -e "${GREEN}✅ Imported (ID: $WORKFLOW_ID)${NC}"
+      
+      # Activate workflow
+      ACTIVATE_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt -X PATCH \
+        "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
+        -H "Content-Type: application/json" \
+        -d '{"active": true}' \
+        2>&1)
+      
+      if echo "$ACTIVATE_RESPONSE" | grep -qi '"active".*true'; then
+        echo "   ✅ Activated successfully"
+      else
+        echo -e "   ${YELLOW}⚠️  Failed to activate${NC}"
+      fi
+      
+      IMPORTED=$((IMPORTED + 1))
+    else
+      echo -e "${RED}❌ Failed (no ID returned)${NC}"
+      FAILED=$((FAILED + 1))
+    fi
+  else
+    echo -e "${RED}❌ Failed${NC}"
+    echo "   Response: ${IMPORT_RESPONSE:0:100}..."
+    FAILED=$((FAILED + 1))
+  fi
+  
+  sleep 1
+done
+
+echo ""
+echo "═══════════════════════════════════════"
+echo "📊 Import Summary"
+echo "═══════════════════════════════════════"
+echo "  Total:    $WORKFLOW_COUNT"
+echo -e "  Imported: ${GREEN}$IMPORTED${NC}"
+echo -e "  Failed:   ${RED}$FAILED${NC}"
+echo ""
+
+# Cleanup
+rm -f /tmp/n8n-cookies.txt
+
+if [ $FAILED -eq 0 ]; then
+  echo -e "${GREEN}🎉 All workflows imported successfully!${NC}"
+  exit 0
+else
+  echo -e "${RED}⚠️  Some workflows failed to import!${NC}"
+  exit 1
+fi
