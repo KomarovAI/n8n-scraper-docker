@@ -1,0 +1,14 @@
+version: '3.8'
+
+# CI Override Configuration
+# This file is composed with docker-compose.yml in CI to force usage of built image
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml up
+
+services:
+  n8n:
+    # Override image to use locally built n8n-enhanced:test in CI
+    # This ensures CI uses the image built by workflow (with custom scripts)
+    # instead of pulling n8nio/n8n:latest from Docker Hub
+    image: n8n-enhanced:test
+    
+    # All other settings inherited from docker-compose.yml
