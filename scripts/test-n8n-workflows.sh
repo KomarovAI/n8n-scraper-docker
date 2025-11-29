@@ -2,7 +2,7 @@
 # Automated n8n Workflow Testing for CI/CD
 # Tests scraper workflows via n8n webhook API
 
-set -e
+set -euo pipefail  # CRITICAL: -o pipefail ensures pipe failures are caught
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
