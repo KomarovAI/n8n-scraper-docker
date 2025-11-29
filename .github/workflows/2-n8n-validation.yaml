@@ -179,9 +179,9 @@ jobs:
     timeout-minutes: 10
     outputs:
       duration: ${{ steps.save.outputs.duration }}
-      passed: ${{ steps.save.outputs.passed }}
-      failed: ${{ steps.save.outputs.failed }}
-      success_rate: ${{ steps.save.outputs.success_rate }}
+      passed: ${{ steps.parse.outputs.PASSED }}
+      failed: ${{ steps.parse.outputs.FAILED }}
+      success_rate: ${{ steps.parse.outputs.SUCCESS_RATE }}
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
@@ -217,14 +217,6 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🗑️ Force clean n8n data
-        run: |
-          echo "🗑️ Removing old volumes with stale credentials..."
-          docker volume rm n8n-scraper-docker_n8n-data 2>/dev/null || true
-          docker volume rm n8n-scraper-docker_postgres-data 2>/dev/null || true
-          docker volume rm n8n-scraper-docker_redis-data 2>/dev/null || true
-          echo "✅ Volumes cleaned - will create fresh with current secrets"
-      
       - name: 🚀 Start n8n stack
         run: |
           docker compose up -d postgres redis
@@ -236,7 +228,7 @@ jobs:
           START=$(date +%s)
           for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              sleep 10
+              sleep 5
               docker compose ps
               exit 0
             fi
