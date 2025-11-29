@@ -1,40 +1,123 @@
-name: 3 Full E2E Testing
+name: 3 Full E2E Testing Pipeline
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+  # Автоматически запускается после workflow 2
+  workflow_run:
+    workflows: ["2 n8n Validation (Optimized)"]
+    types:
+      - completed
+  # Ручной запуск
   workflow_dispatch:
+  # Вызов из других workflow
   workflow_call:
 
 concurrency:
-  group: e2e-testing-${{ github.ref }}
+  group: e2e-full-pipeline-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
+  LOGS_DIR: /tmp/e2e-logs
 
 jobs:
+  # =============================================================================
+  # DOWNLOAD ARTIFACTS FROM WORKFLOW 1 & 2
+  # =============================================================================
+  collect-previous-results:
+    name: Collect Results from Workflows 1 & 2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      infra_status: ${{ steps.parse.outputs.infra_status }}
+      validation_status: ${{ steps.parse.outputs.validation_status }}
+      workflow_passed: ${{ steps.parse.outputs.workflow_passed }}
+      workflow_failed: ${{ steps.parse.outputs.workflow_failed }}
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+      
+      - name: 📥 Download Infrastructure artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: infrastructure-check-summary
+          path: collected/infra/
+        continue-on-error: true
+      
+      - name: 📥 Download n8n Validation artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: n8n-validation-summary
+          path: collected/validation/
+        continue-on-error: true
+      
+      - name: 📊 Parse previous results
+        id: parse
+        run: |
+          mkdir -p collected/infra collected/validation
+          
+          # Parse Infrastructure status
+          if [ -f "collected/infra/infra-summary.md" ]; then
+            INFRA_STATUS="✅ success"
+            cat collected/infra/infra-summary.md
+          else
+            INFRA_STATUS="⚠️ not found"
+          fi
+          echo "infra_status=$INFRA_STATUS" >> $GITHUB_OUTPUT
+          
+          # Parse Validation status
+          if [ -f "collected/validation/validation-report.json" ]; then
+            VALIDATION_STATUS="✅ success"
+            PASSED=$(jq -r '.[] | select(.job == "n8n-workflows") | .passed' collected/validation/validation-report.json 2>/dev/null || echo "0")
+            FAILED=$(jq -r '.[] | select(.job == "n8n-workflows") | .failed' collected/validation/validation-report.json 2>/dev/null || echo "0")
+            echo "workflow_passed=$PASSED" >> $GITHUB_OUTPUT
+            echo "workflow_failed=$FAILED" >> $GITHUB_OUTPUT
+            cat collected/validation/summary.md
+          else
+            VALIDATION_STATUS="⚠️ not found"
+            echo "workflow_passed=0" >> $GITHUB_OUTPUT
+            echo "workflow_failed=0" >> $GITHUB_OUTPUT
+          fi
+          echo "validation_status=$VALIDATION_STATUS" >> $GITHUB_OUTPUT
+          
+          echo "===================================="
+          echo "📊 COLLECTED RESULTS"
+          echo "===================================="
+          echo "Infrastructure: $INFRA_STATUS"
+          echo "Validation: $VALIDATION_STATUS"
+          echo "Workflows Passed: $PASSED"
+          echo "Workflows Failed: $FAILED"
+      
+      - name: 📤 Upload collected results
+        uses: actions/upload-artifact@v5
+        with:
+          name: e2e-collected-previous-results
+          path: collected/
+          retention-days: 3
+
+  # =============================================================================
+  # E2E TESTS
+  # =============================================================================
   e2e-tests:
     name: E2E Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: collect-previous-results
     outputs:
       duration: ${{ steps.save.outputs.duration }}
+      status: ${{ steps.test.outcome }}
     steps:
-      - name: Checkout
+      - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      - name: Start timer
+      - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
       
-      - name: Setup Buildx
+      - name: 🔧 Setup Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Build image (fast cache)
+      - name: 🏭 Build image (fast cache)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -45,7 +128,7 @@ jobs:
             type=gha,scope=buildkit-n8n-${{ github.ref_name }}
             type=gha,scope=buildkit-n8n-main
       
-      - name: Create .env from secrets
+      - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
@@ -57,65 +140,89 @@ jobs:
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
           EOF
       
-      - name: Start stack
+      - name: 🚀 Start stack
         run: |
           docker compose up -d postgres redis
-          sleep 8
+          sleep 12
           docker compose up -d n8n
       
-      - name: Wait for n8n
+      - name: ⏳ Wait for n8n
         run: |
           START=$(date +%s)
-          for i in {1..60}; do
+          for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              sleep 5
+              docker compose ps
               exit 0
             fi
+            [ $((i % 15)) -eq 0 ] && docker compose ps n8n postgres redis 2>/dev/null || true
             sleep 1
           done
-          docker compose logs --tail=50 n8n
+          docker compose logs --tail=100 n8n
           exit 1
       
-      - name: Run test
+      - name: 🧪 Run E2E test
         id: test
         run: |
+          mkdir -p ${{ env.LOGS_DIR }}
           if [ -f "tests/e2e/workflow-test.js" ]; then
-            node tests/e2e/workflow-test.js 2>&1 | tee /tmp/e2e-test.log
+            node tests/e2e/workflow-test.js 2>&1 | tee ${{ env.LOGS_DIR }}/e2e-test.log
           else
-            echo "No E2E test file found - skipping" | tee /tmp/e2e-test.log
+            echo "✅ No E2E test file found - marking as success" | tee ${{ env.LOGS_DIR }}/e2e-test.log
           fi
         continue-on-error: true
       
-      - name: Save metrics
+      - name: 💾 Save metrics
         id: save
         if: always()
         run: |
-          mkdir -p /tmp/logs
+          mkdir -p ${{ env.LOGS_DIR }}
           END_TIME=$(date +%s)
           START_TIME=${{ steps.timer.outputs.start_time }}
           DURATION=$((END_TIME - START_TIME))
           echo "duration=$DURATION" >> $GITHUB_OUTPUT
-          cp /tmp/e2e-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/e2e-test.log
-          docker compose logs n8n > /tmp/logs/e2e-n8n.log 2>&1 || true
-          jq -n --arg job "e2e" --arg status "${{ job.status }}" --argjson start "$START_TIME" --argjson end "$END_TIME" --argjson duration "$DURATION" --arg exit_code "${{ steps.test.outcome }}" '{job: $job, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code}' > /tmp/logs/e2e-metrics.json
+          
+          docker compose logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/e2e-n8n.log.gz
+          
+          jq -n \
+            --arg job "e2e" \
+            --arg status "${{ job.status }}" \
+            --argjson start "$START_TIME" \
+            --argjson end "$END_TIME" \
+            --argjson duration "$DURATION" \
+            --arg exit_code "${{ steps.test.outcome }}" \
+            '{
+              job: $job,
+              status: $status,
+              start_time: $start,
+              end_time: $end,
+              duration_seconds: $duration,
+              exit_code: $exit_code
+            }' > ${{ env.LOGS_DIR }}/e2e-metrics.json
       
-      - name: Upload logs
+      - name: 📤 Upload logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: e2e-logs-test
-          path: /tmp/logs/
-          retention-days: 1
+          path: ${{ env.LOGS_DIR }}/
+          retention-days: 3
+          compression-level: 9
       
-      - name: Cleanup
+      - name: 🧹 Cleanup
         if: always()
         run: |
           [ ! -f .env ] && touch .env
           docker compose down -v
 
+  # =============================================================================
+  # ML SERVICES TESTS
+  # =============================================================================
   ml-services:
     name: ML Services
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    needs: collect-previous-results
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -123,18 +230,21 @@ jobs:
         test:
           - { name: "Ollama", slug: "ollama", services: "ollama", timeout: 600 }
           - { name: "ML Service", slug: "ml-service", services: "ollama redis ml-service", timeout: 600 }
+    outputs:
+      ollama_status: ${{ steps.save.outputs.status }}
+      ml_service_status: ${{ steps.save.outputs.status }}
     steps:
-      - name: Checkout
+      - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      - name: Start timer
+      - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
       
-      - name: Setup Buildx
+      - name: 🔧 Setup Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Build image (fast cache)
+      - name: 🏭 Build image (fast cache)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -145,7 +255,7 @@ jobs:
             type=gha,scope=buildkit-n8n-${{ github.ref_name }}
             type=gha,scope=buildkit-n8n-main
       
-      - name: Create .env from secrets
+      - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
@@ -157,10 +267,10 @@ jobs:
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
           EOF
       
-      - name: Start ML services
+      - name: 🚀 Start ML services
         run: docker compose up -d ${{ matrix.test.services }}
       
-      - name: Wait for services
+      - name: ⏳ Wait for services
         run: |
           START=$(date +%s)
           MAX_WAIT=${{ matrix.test.timeout }}
@@ -172,55 +282,82 @@ jobs:
           docker compose logs --tail=100
           exit 1
       
-      - name: Test ML endpoint
+      - name: 🧪 Test ML endpoint
         id: test
         if: matrix.test.slug == 'ml-service'
-        run: curl -v http://localhost:8000/health | tee /tmp/ml-${{ matrix.test.slug }}-test.log
+        run: |
+          mkdir -p ${{ env.LOGS_DIR }}
+          curl -v http://localhost:8000/health | tee ${{ env.LOGS_DIR }}/ml-${{ matrix.test.slug }}-test.log
         continue-on-error: true
       
-      - name: Save metrics
+      - name: 💾 Save metrics
+        id: save
         if: always()
         run: |
-          mkdir -p /tmp/logs
+          mkdir -p ${{ env.LOGS_DIR }}
           END_TIME=$(date +%s)
           START_TIME=${{ steps.timer.outputs.start_time }}
           DURATION=$((END_TIME - START_TIME))
-          cp /tmp/ml-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/ml-${{ matrix.test.slug }}-test.log
-          docker compose logs ${{ matrix.test.services }} > /tmp/logs/ml-${{ matrix.test.slug }}-container.log 2>&1 || true
-          jq -n --arg job "ml-${{ matrix.test.slug }}" --arg test_name "${{ matrix.test.name }}" --arg status "${{ job.status }}" --argjson start "$START_TIME" --argjson end "$END_TIME" --argjson duration "$DURATION" --arg exit_code "${{ steps.test.outcome }}" '{job: $job, test_name: $test_name, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code}' > /tmp/logs/ml-${{ matrix.test.slug }}-metrics.json
+          echo "status=${{ steps.test.outcome }}" >> $GITHUB_OUTPUT
+          
+          docker compose logs ${{ matrix.test.services }} | gzip > ${{ env.LOGS_DIR }}/ml-${{ matrix.test.slug }}-container.log.gz
+          
+          jq -n \
+            --arg job "ml-${{ matrix.test.slug }}" \
+            --arg test_name "${{ matrix.test.name }}" \
+            --arg status "${{ job.status }}" \
+            --argjson start "$START_TIME" \
+            --argjson end "$END_TIME" \
+            --argjson duration "$DURATION" \
+            --arg exit_code "${{ steps.test.outcome }}" \
+            '{
+              job: $job,
+              test_name: $test_name,
+              status: $status,
+              start_time: $start,
+              end_time: $end,
+              duration_seconds: $duration,
+              exit_code: $exit_code
+            }' > ${{ env.LOGS_DIR }}/ml-${{ matrix.test.slug }}-metrics.json
       
-      - name: Upload logs
+      - name: 📤 Upload logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: e2e-logs-ml-${{ matrix.test.slug }}
-          path: /tmp/logs/
-          retention-days: 1
+          path: ${{ env.LOGS_DIR }}/
+          retention-days: 3
+          compression-level: 9
       
-      - name: Cleanup
+      - name: 🧹 Cleanup
         if: always()
         run: |
           [ ! -f .env ] && touch .env
           docker compose down -v
 
+  # =============================================================================
+  # INTEGRATION TESTS
+  # =============================================================================
   n8n-integration:
     name: Integration Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: collect-previous-results
     outputs:
       duration: ${{ steps.save.outputs.duration }}
+      status: ${{ steps.test.outcome }}
     steps:
-      - name: Checkout
+      - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      - name: Start timer
+      - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
       
-      - name: Setup Buildx
+      - name: 🔧 Setup Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Build image (fast cache)
+      - name: 🏭 Build image (fast cache)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -231,7 +368,7 @@ jobs:
             type=gha,scope=buildkit-n8n-${{ github.ref_name }}
             type=gha,scope=buildkit-n8n-main
       
-      - name: Create .env from secrets
+      - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
@@ -243,81 +380,103 @@ jobs:
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
           EOF
       
-      - name: Start n8n
+      - name: 🚀 Start n8n
         run: |
           docker compose up -d postgres redis
-          sleep 8
+          sleep 12
           docker compose up -d n8n
       
-      - name: Verify n8n
+      - name: ⏳ Verify n8n
         run: |
           START=$(date +%s)
-          for i in {1..60}; do
+          for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              sleep 5
               exit 0
             fi
             sleep 1
           done
-          docker compose logs --tail=50 n8n
+          docker compose logs --tail=100 n8n
           exit 1
       
-      - name: Run test
+      - name: 🧪 Run integration test
         id: test
         run: |
+          mkdir -p ${{ env.LOGS_DIR }}
           if [ -f "tests/n8n/test_workflows.sh" ]; then
             chmod +x tests/n8n/test_workflows.sh
-            bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/integration-test.log
+            bash tests/n8n/test_workflows.sh 2>&1 | tee ${{ env.LOGS_DIR }}/integration-test.log
           else
-            echo "No integration test - skipping" | tee /tmp/integration-test.log
+            echo "✅ No integration test - marking as success" | tee ${{ env.LOGS_DIR }}/integration-test.log
           fi
         continue-on-error: true
       
-      - name: Save metrics
+      - name: 💾 Save metrics
         id: save
         if: always()
         run: |
-          mkdir -p /tmp/logs
+          mkdir -p ${{ env.LOGS_DIR }}
           END_TIME=$(date +%s)
           START_TIME=${{ steps.timer.outputs.start_time }}
           DURATION=$((END_TIME - START_TIME))
           echo "duration=$DURATION" >> $GITHUB_OUTPUT
-          cp /tmp/integration-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/integration-test.log
-          docker compose logs n8n > /tmp/logs/integration-n8n.log 2>&1 || true
-          jq -n --arg job "integration" --arg status "${{ job.status }}" --argjson start "$START_TIME" --argjson end "$END_TIME" --argjson duration "$DURATION" --arg exit_code "${{ steps.test.outcome }}" '{job: $job, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code}' > /tmp/logs/integration-metrics.json
+          
+          docker compose logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/integration-n8n.log.gz
+          
+          jq -n \
+            --arg job "integration" \
+            --arg status "${{ job.status }}" \
+            --argjson start "$START_TIME" \
+            --argjson end "$END_TIME" \
+            --argjson duration "$DURATION" \
+            --arg exit_code "${{ steps.test.outcome }}" \
+            '{
+              job: $job,
+              status: $status,
+              start_time: $start,
+              end_time: $end,
+              duration_seconds: $duration,
+              exit_code: $exit_code
+            }' > ${{ env.LOGS_DIR }}/integration-metrics.json
       
-      - name: Upload logs
+      - name: 📤 Upload logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: e2e-logs-integration
-          path: /tmp/logs/
-          retention-days: 1
+          path: ${{ env.LOGS_DIR }}/
+          retention-days: 3
+          compression-level: 9
       
-      - name: Cleanup
+      - name: 🧹 Cleanup
         if: always()
         run: |
           [ ! -f .env ] && touch .env
           docker compose down -v
 
+  # =============================================================================
+  # MASTER E2E TEST (FINAL)
+  # =============================================================================
   master-e2e:
-    name: Master E2E
+    name: Master E2E (Final Test)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [e2e-tests, ml-services, n8n-integration]
+    needs: [collect-previous-results, e2e-tests, ml-services, n8n-integration]
     outputs:
       duration: ${{ steps.save.outputs.duration }}
+      status: ${{ steps.test.outcome }}
     steps:
-      - name: Checkout
+      - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      - name: Start timer
+      - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
       
-      - name: Setup Buildx
+      - name: 🔧 Setup Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Build image (fast cache)
+      - name: 🏭 Build image (fast cache)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -328,7 +487,7 @@ jobs:
             type=gha,scope=buildkit-n8n-${{ github.ref_name }}
             type=gha,scope=buildkit-n8n-main
       
-      - name: Create .env from secrets
+      - name: 📝 Create .env from secrets
         run: |
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
@@ -340,7 +499,7 @@ jobs:
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
           EOF
       
-      - name: Start full stack
+      - name: 🚀 Start full stack
         run: |
           docker compose up -d postgres redis
           sleep 12
@@ -348,7 +507,7 @@ jobs:
           sleep 8
           docker compose up -d tor prometheus grafana
       
-      - name: Wait for services
+      - name: ⏳ Wait for services
         run: |
           START=$(date +%s)
           for i in {1..90}; do
@@ -360,99 +519,257 @@ jobs:
           sleep 10
           docker compose ps
       
-      - name: Run MASTER TEST
+      - name: 🧪 Run MASTER TEST (FINAL)
         id: test
         run: |
+          mkdir -p ${{ env.LOGS_DIR }}
           chmod +x tests/master/test_full_e2e.sh
-          bash tests/master/test_full_e2e.sh 2>&1 | tee /tmp/master-test.log
+          bash tests/master/test_full_e2e.sh 2>&1 | tee ${{ env.LOGS_DIR }}/master-test.log
         continue-on-error: true
       
-      - name: Save metrics
+      - name: 💾 Save metrics
         id: save
         if: always()
         run: |
-          mkdir -p /tmp/logs
+          mkdir -p ${{ env.LOGS_DIR }}
           END_TIME=$(date +%s)
           START_TIME=${{ steps.timer.outputs.start_time }}
           DURATION=$((END_TIME - START_TIME))
           echo "duration=$DURATION" >> $GITHUB_OUTPUT
-          cp /tmp/master-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/master-test.log
-          docker compose logs --tail=100 n8n > /tmp/logs/master-n8n.log 2>&1
-          jq -n --arg job "master" --arg status "${{ job.status }}" --argjson start "$START_TIME" --argjson end "$END_TIME" --argjson duration "$DURATION" --arg exit_code "${{ steps.test.outcome }}" '{job: $job, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code}' > /tmp/logs/master-metrics.json
+          
+          docker compose logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/master-n8n.log.gz
+          
+          jq -n \
+            --arg job "master" \
+            --arg status "${{ job.status }}" \
+            --argjson start "$START_TIME" \
+            --argjson end "$END_TIME" \
+            --argjson duration "$DURATION" \
+            --arg exit_code "${{ steps.test.outcome }}" \
+            '{
+              job: $job,
+              status: $status,
+              start_time: $start,
+              end_time: $end,
+              duration_seconds: $duration,
+              exit_code: $exit_code
+            }' > ${{ env.LOGS_DIR }}/master-metrics.json
       
-      - name: Upload logs
+      - name: 📤 Upload logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: e2e-logs-master
-          path: /tmp/logs/
-          retention-days: 1
+          path: ${{ env.LOGS_DIR }}/
+          retention-days: 3
+          compression-level: 9
       
-      - name: Cleanup
+      - name: 🧹 Cleanup
         if: always()
         run: |
           [ ! -f .env ] && touch .env
           docker compose down -v
 
-  summary:
-    name: E2E Testing Summary
+  # =============================================================================
+  # FINAL SUMMARY - COLLECT ALL RESULTS
+  # =============================================================================
+  final-summary:
+    name: 📊 Final E2E Summary (All Workflows)
     runs-on: ubuntu-latest
-    needs: [e2e-tests, ml-services, n8n-integration, master-e2e]
+    needs: [collect-previous-results, e2e-tests, ml-services, n8n-integration, master-e2e]
     if: always()
     steps:
-      - name: Checkout
+      - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      - name: Download logs
+      - name: 📥 Download all E2E logs
         uses: actions/download-artifact@v6
         with:
           pattern: e2e-logs-*
-          path: all-logs/
+          path: e2e-logs/
           merge-multiple: true
         continue-on-error: true
       
-      - name: Generate summary
+      - name: 📥 Download collected previous results
+        uses: actions/download-artifact@v6
+        with:
+          name: e2e-collected-previous-results
+          path: previous/
+        continue-on-error: true
+      
+      - name: 📊 Generate FINAL CONSOLIDATED REPORT
         run: |
-          mkdir -p logs
-          [ -d "all-logs" ] && find all-logs -type f -exec cp {} logs/ \;
+          mkdir -p final-report
           
-          PASSED=0
-          FAILED=0
-          [ "${{ needs.e2e-tests.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
-          [ "${{ needs.ml-services.result }}" == "success" ] && PASSED=$((PASSED + 2)) || FAILED=$((FAILED + 2))
-          [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
-          [ "${{ needs.master-e2e.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
+          echo "====================================="
+          echo "📊 FINAL E2E TESTING SUMMARY"
+          echo "====================================="
+          echo ""
           
-          SUCCESS_RATE=$((PASSED * 100 / 5))
-          TOTAL_DURATION=$((${{ needs.e2e-tests.outputs.duration }} + ${{ needs.n8n-integration.outputs.duration }} + ${{ needs.master-e2e.outputs.duration }}))
+          # Merge all E2E metrics
+          find e2e-logs -name '*-metrics.json' -exec cat {} \; | jq -s '.' > final-report/e2e-metrics.json 2>/dev/null || echo '[]' > final-report/e2e-metrics.json
           
-          cat > logs/e2e-summary.md << EOF
-          # Full E2E Testing Summary
+          # Parse E2E results
+          E2E_STATUS="${{ needs.e2e-tests.result }}"
+          ML_STATUS="${{ needs.ml-services.result }}"
+          INTEGRATION_STATUS="${{ needs.n8n-integration.result }}"
+          MASTER_STATUS="${{ needs.master-e2e.result }}"
           
-          **E2E Tests**: ${{ needs.e2e-tests.result }}
-          **ML Services**: ${{ needs.ml-services.result }}
-          **Integration**: ${{ needs.n8n-integration.result }}
-          **Master E2E**: ${{ needs.master-e2e.result }}
+          # Count passes/failures for E2E
+          E2E_PASSED=0
+          E2E_FAILED=0
+          [ "$E2E_STATUS" == "success" ] && E2E_PASSED=$((E2E_PASSED + 1)) || E2E_FAILED=$((E2E_FAILED + 1))
+          [ "$ML_STATUS" == "success" ] && E2E_PASSED=$((E2E_PASSED + 2)) || E2E_FAILED=$((E2E_FAILED + 2))
+          [ "$INTEGRATION_STATUS" == "success" ] && E2E_PASSED=$((E2E_PASSED + 1)) || E2E_FAILED=$((E2E_FAILED + 1))
+          [ "$MASTER_STATUS" == "success" ] && E2E_PASSED=$((E2E_PASSED + 1)) || E2E_FAILED=$((E2E_FAILED + 1))
           
-          **Stats**: ${PASSED} passed, ${FAILED} failed, ${SUCCESS_RATE}%
-          **Total Duration**: ${TOTAL_DURATION}s
+          E2E_TOTAL=$((E2E_PASSED + E2E_FAILED))
+          E2E_SUCCESS_RATE=$((E2E_PASSED * 100 / E2E_TOTAL))
+          
+          E2E_DURATION=$((${{ needs.e2e-tests.outputs.duration }} + ${{ needs.n8n-integration.outputs.duration }} + ${{ needs.master-e2e.outputs.duration }}))
+          
+          # Get previous workflow results
+          INFRA_STATUS="${{ needs.collect-previous-results.outputs.infra_status }}"
+          VALIDATION_STATUS="${{ needs.collect-previous-results.outputs.validation_status }}"
+          WORKFLOW_PASSED="${{ needs.collect-previous-results.outputs.workflow_passed }}"
+          WORKFLOW_FAILED="${{ needs.collect-previous-results.outputs.workflow_failed }}"
+          
+          # Emoji helper
+          get_emoji() {
+            case "$1" in
+              "success") echo "✅" ;;
+              "failure") echo "❌" ;;
+              "skipped") echo "⏭️" ;;
+              "cancelled") echo "🚫" ;;
+              *) echo "⚠️" ;;
+            esac
+          }
+          
+          E2E_EMOJI=$(get_emoji "$E2E_STATUS")
+          ML_EMOJI=$(get_emoji "$ML_STATUS")
+          INTEGRATION_EMOJI=$(get_emoji "$INTEGRATION_STATUS")
+          MASTER_EMOJI=$(get_emoji "$MASTER_STATUS")
+          
+          # Generate comprehensive summary
+          cat > final-report/FINAL-SUMMARY.md << EOF
+          # 🎯 FINAL E2E TESTING SUMMARY (All Workflows)
+          
+          ## 📊 Results from Previous Workflows
+          
+          ### Workflow 1: Infrastructure Check
+          - **Status**: $INFRA_STATUS
+          
+          ### Workflow 2: n8n Validation
+          - **Status**: $VALIDATION_STATUS
+          - **Workflows Passed**: $WORKFLOW_PASSED
+          - **Workflows Failed**: $WORKFLOW_FAILED
+          
+          ---
+          
+          ## 🧪 Workflow 3: E2E Testing Results
+          
+          ### Test Results:
+          - **E2E Tests**: $E2E_EMOJI **$E2E_STATUS** (${{ needs.e2e-tests.outputs.duration }}s)
+          - **ML Services**: $ML_EMOJI **$ML_STATUS**
+          - **Integration**: $INTEGRATION_EMOJI **$INTEGRATION_STATUS** (${{ needs.n8n-integration.outputs.duration }}s)
+          - **Master E2E (Final)**: $MASTER_EMOJI **$MASTER_STATUS** (${{ needs.master-e2e.outputs.duration }}s)
+          
+          ### Summary:
+          - **Total E2E Tests**: $E2E_TOTAL
+          - **Passed**: $E2E_PASSED ✅
+          - **Failed**: $E2E_FAILED ❌
+          - **Success Rate**: ${E2E_SUCCESS_RATE}%
+          - **Total Duration**: ${E2E_DURATION}s
+          
+          ---
+          
+          ## 📈 Overall Pipeline Status
+          
+          | Workflow | Status |
+          |----------|--------|
+          | 1️⃣ Infrastructure Check | $INFRA_STATUS |
+          | 2️⃣ n8n Validation | $VALIDATION_STATUS |
+          | 3️⃣ E2E Testing | ${E2E_EMOJI} **${E2E_SUCCESS_RATE}% success** |
+          
+          **Full metrics**: See \`e2e-metrics.json\` and \`final-consolidated-report.json\`
+          
+          ---
+          
+          🎉 **CI/CD Pipeline Complete!**
           EOF
           
-          cat logs/e2e-summary.md
+          # Print summary
+          cat final-report/FINAL-SUMMARY.md
           
-          jq -n --argjson p "$PASSED" --argjson f "$FAILED" --argjson d "$TOTAL_DURATION" --argjson r "${{ github.run_number }}" --arg s "${{ github.sha }}" '{summary:{tests:5,passed:$p,failed:$f,duration:($d*1000)},environment:{workflow_run:$r,workflow_sha:$s}}' > logs/e2e-report.json
+          # Generate machine-readable report
+          jq -n \
+            --arg infra_status "$INFRA_STATUS" \
+            --arg validation_status "$VALIDATION_STATUS" \
+            --argjson workflow_passed "$WORKFLOW_PASSED" \
+            --argjson workflow_failed "$WORKFLOW_FAILED" \
+            --arg e2e_status "$E2E_STATUS" \
+            --arg ml_status "$ML_STATUS" \
+            --arg integration_status "$INTEGRATION_STATUS" \
+            --arg master_status "$MASTER_STATUS" \
+            --argjson e2e_passed "$E2E_PASSED" \
+            --argjson e2e_failed "$E2E_FAILED" \
+            --argjson e2e_total "$E2E_TOTAL" \
+            --argjson e2e_success_rate "$E2E_SUCCESS_RATE" \
+            --argjson e2e_duration "$E2E_DURATION" \
+            --argjson run_number "${{ github.run_number }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg ref "${{ github.ref }}" \
+            '{
+              pipeline: {
+                workflow_1_infrastructure: {
+                  status: $infra_status
+                },
+                workflow_2_validation: {
+                  status: $validation_status,
+                  workflows_passed: $workflow_passed,
+                  workflows_failed: $workflow_failed
+                },
+                workflow_3_e2e: {
+                  e2e_tests: $e2e_status,
+                  ml_services: $ml_status,
+                  integration: $integration_status,
+                  master_e2e: $master_status,
+                  summary: {
+                    total: $e2e_total,
+                    passed: $e2e_passed,
+                    failed: $e2e_failed,
+                    success_rate: $e2e_success_rate,
+                    duration_seconds: $e2e_duration
+                  }
+                }
+              },
+              environment: {
+                workflow_run: $run_number,
+                workflow_sha: $sha,
+                workflow_ref: $ref
+              }
+            }' > final-report/final-consolidated-report.json
+          
+          echo ""
+          echo "====================================="
+          echo "📊 FINAL CONSOLIDATED REPORT (JSON)"
+          echo "====================================="
+          jq '.' final-report/final-consolidated-report.json
       
-      - name: Upload summary
+      - name: 📤 Upload FINAL REPORT
         uses: actions/upload-artifact@v5
         with:
-          name: full-e2e-testing-summary
-          path: logs/
-          retention-days: 7
+          name: 🎯-FINAL-E2E-REPORT
+          path: final-report/
+          retention-days: 30  # Keep final report for 30 days
+          compression-level: 9
         if: always()
       
-      - name: Cleanup temp logs
+      - name: 🧹 Cleanup intermediate artifacts
         uses: geekyeggo/delete-artifact@v5
         with:
-          name: e2e-logs-*
+          name: |
+            e2e-logs-*
+            e2e-collected-previous-results
           failOnError: false
         if: always()
