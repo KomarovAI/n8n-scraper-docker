@@ -101,3 +101,17 @@ tests/**/*.log
 tests/**/test-results/
 *.test-results
 .github/workflows/*.log
+
+# AI Tools
+.aider*
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v3/
+.cursor/
+*.cursor-tutor
+
+# Keep AI documentation
+!.ai/
+!.aider.conf.yml
+!.cursorrules
+!.llms.txt
