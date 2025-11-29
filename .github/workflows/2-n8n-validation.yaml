@@ -1,0 +1,324 @@
+name: 2 n8n Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: n8n-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  essential-tests:
+    name: Essential Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n postgres redis prometheus grafana" }
+          - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n postgres redis" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Start timer
+        id: timer
+        run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+      
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build image (fast cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.n8n-enhanced
+          tags: n8n-enhanced:test
+          load: true
+          cache-from: |
+            type=gha,scope=buildkit-n8n-${{ github.ref_name }}
+            type=gha,scope=buildkit-n8n-main
+      
+      - name: Create .env from secrets
+        run: |
+          cat > .env << EOF
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+      
+      - name: Start services
+        run: |
+          docker compose up -d postgres redis
+          sleep 8
+          docker compose up -d ${{ matrix.test.services }}
+      
+      - name: Wait for n8n
+        run: |
+          START=$(date +%s)
+          for i in {1..60}; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              docker compose ps
+              exit 0
+            fi
+            [ $((i % 10)) -eq 0 ] && docker compose ps n8n postgres redis 2>/dev/null || true
+            sleep 1
+          done
+          docker compose ps
+          docker compose logs --tail=100 n8n
+          exit 1
+      
+      - name: Run test
+        id: test
+        run: |
+          chmod +x ${{ matrix.test.script }}
+          bash ${{ matrix.test.script }} 2>&1 | tee /tmp/essential-${{ matrix.test.slug }}-test.log
+        continue-on-error: true
+      
+      - name: Save metrics
+        if: always()
+        run: |
+          mkdir -p /tmp/logs
+          END_TIME=$(date +%s)
+          START_TIME=${{ steps.timer.outputs.start_time }}
+          DURATION=$((END_TIME - START_TIME))
+          cp /tmp/essential-${{ matrix.test.slug }}-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/essential-${{ matrix.test.slug }}-test.log
+          docker compose logs n8n > /tmp/logs/essential-${{ matrix.test.slug }}-n8n.log 2>&1 || true
+          jq -n --arg job "essential-${{ matrix.test.slug }}" --arg test_name "${{ matrix.test.name }}" --arg status "${{ job.status }}" --argjson start "$START_TIME" --argjson end "$END_TIME" --argjson duration "$DURATION" --arg exit_code "${{ steps.test.outcome }}" '{job: $job, test_name: $test_name, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code}' > /tmp/logs/essential-${{ matrix.test.slug }}-metrics.json
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: n8n-logs-essential-${{ matrix.test.slug }}
+          path: /tmp/logs/
+          retention-days: 1
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
+
+  n8n-workflow-tests:
+    name: n8n Workflow Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      duration: ${{ steps.save.outputs.duration }}
+      passed: ${{ steps.save.outputs.passed }}
+      failed: ${{ steps.save.outputs.failed }}
+      success_rate: ${{ steps.save.outputs.success_rate }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Start timer
+        id: timer
+        run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+      
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build image (fast cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.n8n-enhanced
+          tags: n8n-enhanced:test
+          load: true
+          cache-from: |
+            type=gha,scope=buildkit-n8n-${{ github.ref_name }}
+            type=gha,scope=buildkit-n8n-main
+      
+      - name: Create .env from secrets
+        run: |
+          cat > .env << EOF
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          EOF
+      
+      - name: Start n8n stack
+        run: |
+          docker compose up -d postgres redis
+          sleep 10
+          docker compose up -d n8n
+      
+      - name: Wait for n8n
+        run: |
+          START=$(date +%s)
+          for i in {1..90}; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              sleep 10
+              docker compose ps
+              exit 0
+            fi
+            [ $((i % 15)) -eq 0 ] && docker compose ps n8n postgres redis 2>/dev/null || true
+            sleep 1
+          done
+          docker compose logs --tail=100 n8n
+          exit 1
+      
+      - name: Import n8n workflows via API
+        run: |
+          chmod +x scripts/import-n8n-workflows.sh
+          export N8N_URL="http://localhost:5678"
+          export N8N_USER="${{ secrets.N8N_USER_CI }}"
+          export N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}"
+          export WORKFLOWS_DIR="workflows"
+          bash scripts/import-n8n-workflows.sh 2>&1 | tee /tmp/import-workflows.log
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -ne 0 ]; then
+            cat /tmp/import-workflows.log
+            docker compose logs --tail=100 n8n
+            exit $EXIT_CODE
+          fi
+      
+      - name: Test n8n workflows
+        id: test
+        run: |
+          chmod +x scripts/test-n8n-workflows.sh
+          export N8N_URL="http://localhost:5678"
+          export N8N_USER="${{ secrets.N8N_USER_CI }}"
+          export N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}"
+          export WEBHOOK_PATH="/webhook-test/scrape"
+          export TEST_TIMEOUT="30"
+          export REPORT_FILE="/tmp/n8n-workflow-test-results.json"
+          bash scripts/test-n8n-workflows.sh 2>&1 | tee /tmp/n8n-workflow-test.log
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -ne 0 ]; then
+            docker compose logs --tail=100 n8n
+            exit $EXIT_CODE
+          fi
+      
+      - name: Parse test results
+        id: parse
+        if: always()
+        run: |
+          if [ -f "/tmp/n8n-workflow-test-results.json" ]; then
+            PASSED=$(jq -r '.summary.passed' /tmp/n8n-workflow-test-results.json)
+            FAILED=$(jq -r '.summary.failed' /tmp/n8n-workflow-test-results.json)
+            SUCCESS_RATE=$(jq -r '.summary.success_rate' /tmp/n8n-workflow-test-results.json)
+            echo "PASSED=$PASSED" >> $GITHUB_OUTPUT
+            echo "FAILED=$FAILED" >> $GITHUB_OUTPUT
+            echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_OUTPUT
+          else
+            echo "PASSED=0" >> $GITHUB_OUTPUT
+            echo "FAILED=0" >> $GITHUB_OUTPUT
+            echo "SUCCESS_RATE=0" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Save metrics
+        id: save
+        if: always()
+        run: |
+          mkdir -p /tmp/logs
+          END_TIME=$(date +%s)
+          START_TIME=${{ steps.timer.outputs.start_time }}
+          DURATION=$((END_TIME - START_TIME))
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          echo "passed=${{ steps.parse.outputs.PASSED }}" >> $GITHUB_OUTPUT
+          echo "failed=${{ steps.parse.outputs.FAILED }}" >> $GITHUB_OUTPUT
+          echo "success_rate=${{ steps.parse.outputs.SUCCESS_RATE }}" >> $GITHUB_OUTPUT
+          cp /tmp/n8n-workflow-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/n8n-workflow-test.log
+          cp /tmp/import-workflows.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/import-workflows.log
+          cp /tmp/n8n-workflow-test-results.json /tmp/logs/ 2>/dev/null || echo "{}" > /tmp/logs/n8n-workflow-test-results.json
+          docker compose logs n8n > /tmp/logs/n8n-workflow-n8n.log 2>&1 || true
+          jq -n --arg job "n8n-workflows" --arg status "${{ job.status }}" --argjson start "$START_TIME" --argjson end "$END_TIME" --argjson duration "$DURATION" --arg exit_code "${{ steps.test.outcome }}" --argjson passed "${{ steps.parse.outputs.PASSED }}" --argjson failed "${{ steps.parse.outputs.FAILED }}" --argjson success_rate "${{ steps.parse.outputs.SUCCESS_RATE }}" '{job: $job, status: $status, start_time: $start, end_time: $end, duration_seconds: $duration, exit_code: $exit_code, passed: $passed, failed: $failed, success_rate: $success_rate}' > /tmp/logs/n8n-workflows-metrics.json
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: n8n-logs-workflows
+          path: /tmp/logs/
+          retention-days: 1
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          [ ! -f .env ] && touch .env
+          docker compose down -v
+
+  summary:
+    name: n8n Validation Summary
+    runs-on: ubuntu-latest
+    needs: [essential-tests, n8n-workflow-tests]
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Download logs
+        uses: actions/download-artifact@v6
+        with:
+          pattern: n8n-logs-*
+          path: all-logs/
+          merge-multiple: true
+        continue-on-error: true
+      
+      - name: Generate summary
+        run: |
+          mkdir -p logs
+          [ -d "all-logs" ] && find all-logs -type f -exec cp {} logs/ \;
+          
+          cat > logs/n8n-summary.md << EOF
+          # n8n Validation Summary
+          
+          **Essential Tests**: ${{ needs.essential-tests.result }}
+          **n8n Workflows**: ${{ needs.n8n-workflow-tests.result }}
+          
+          **Workflow Results**:
+          - Passed: ${{ needs.n8n-workflow-tests.outputs.passed }}
+          - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
+          - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
+          
+          **Duration**: ${{ needs.n8n-workflow-tests.outputs.duration }}s
+          EOF
+          
+          cat logs/n8n-summary.md
+      
+      - name: Upload summary
+        uses: actions/upload-artifact@v5
+        with:
+          name: n8n-validation-summary
+          path: logs/
+          retention-days: 7
+        if: always()
+      
+      - name: Cleanup temp logs
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: n8n-logs-*
+          failOnError: false
+        if: always()
