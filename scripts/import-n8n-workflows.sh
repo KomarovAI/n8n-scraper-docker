@@ -19,6 +19,9 @@ N8N_URL="${N8N_URL:-http://localhost:5678}"
 N8N_USER="${N8N_USER:-admin@example.com}"
 N8N_PASSWORD="${N8N_PASSWORD}"
 WORKFLOWS_DIR="${WORKFLOWS_DIR:-workflows}"
+POSTGRES_USER="${POSTGRES_USER:-scraper_user}"
+POSTGRES_DB="${POSTGRES_DB:-scraper_db}"
+MAX_MIGRATION_WAIT=60  # seconds
 
 if [ -z "$N8N_PASSWORD" ]; then
   echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
@@ -86,82 +89,148 @@ else
 fi
 echo ""
 
-# Force reset owner if credentials don't match
+# Force reset environment if credentials don't match
 if [ "$NEED_RESET" = true ]; then
-  echo "🔧 Resetting n8n owner..."
-  
-  # Delete ALL n8n user management tables AND migration records!
-  echo "🗑️  Removing all user data and migration records..."
-  
-  # Use docker compose exec with proper postgres credentials
-  PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
-    psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" <<-EOSQL 2>/dev/null || true
-      -- Delete user-related tables (reverse FK order)
-      DELETE FROM "shared_workflow";
-      DELETE FROM "shared_credentials";
-      DELETE FROM "auth_identity";
-      DELETE FROM "user";
-      DELETE FROM "role";
-      
-      -- Clear execution history (optional, for clean slate)
-      DELETE FROM "execution_entity";
-      DELETE FROM "webhook_entity";
-      
-      -- CRITICAL: Force n8n to recreate roles by deleting migration record!
-      DELETE FROM "migrations" WHERE name LIKE '%UserManagement%';
-EOSQL
-  
-  echo -e "${GREEN}✅ All user data and migration records removed${NC}"
-  echo "   n8n will recreate roles on next startup"
+  echo "🧹 Full environment reset required..."
   echo ""
   
-  # Fully recreate n8n container to trigger migrations
-  echo "🔄 Recreating n8n container to trigger migrations..."
-  docker compose stop n8n > /dev/null 2>&1
-  docker compose rm -f n8n > /dev/null 2>&1
-  docker compose up -d n8n --force-recreate > /dev/null 2>&1
-  echo -e "${GREEN}✅ n8n container recreated${NC}"
+  # ═══════════════════════════════════════════════════════════════
+  # CRITICAL SECTION: Complete environment recreation
+  # This ensures n8n migrations run from scratch
+  # ═══════════════════════════════════════════════════════════════
+  
+  echo "⏸️  Step 1/6: Stopping all services..."
+  docker compose stop n8n postgres redis > /dev/null 2>&1
+  echo -e "${GREEN}✅ Services stopped${NC}"
   echo ""
   
-  # Wait for n8n to complete migrations and recreate roles
-  echo "⏳ Waiting for n8n migration to complete (max 60s)..."
+  echo "🗑️  Step 2/6: Removing containers..."
+  docker compose rm -f n8n postgres redis > /dev/null 2>&1
+  echo -e "${GREEN}✅ Containers removed${NC}"
+  echo ""
   
+  echo "🗑️  Step 3/6: Removing volumes (CRITICAL for migration trigger)..."
+  docker volume rm n8n-scraper-docker_postgres-data 2>/dev/null || true
+  docker volume rm n8n-scraper-docker_n8n-data 2>/dev/null || true
+  docker volume rm n8n-scraper-docker_redis-data 2>/dev/null || true
+  echo -e "${GREEN}✅ Clean slate achieved - migrations will run!${NC}"
+  echo ""
+  
+  echo "🚀 Step 4/6: Starting fresh database..."
+  docker compose up -d postgres redis > /dev/null 2>&1
+  echo -e "${GREEN}✅ Database containers started${NC}"
+  echo ""
+  
+  echo "⏳ Step 5/6: Waiting for PostgreSQL full readiness..."
+  PG_READY_ATTEMPTS=0
+  PG_MAX_ATTEMPTS=30
+  
+  while [ $PG_READY_ATTEMPTS -lt $PG_MAX_ATTEMPTS ]; do
+    PG_READY_ATTEMPTS=$((PG_READY_ATTEMPTS + 1))
+    
+    if docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" > /dev/null 2>&1; then
+      echo -e "${GREEN}✅ PostgreSQL is ready! (attempt $PG_READY_ATTEMPTS/$PG_MAX_ATTEMPTS)${NC}"
+      break
+    fi
+    
+    if [ $PG_READY_ATTEMPTS -eq $PG_MAX_ATTEMPTS ]; then
+      echo -e "${RED}❌ PostgreSQL not ready after 90 seconds!${NC}"
+      exit 1
+    fi
+    
+    echo "   ⏳ Waiting for PostgreSQL... (attempt $PG_READY_ATTEMPTS/$PG_MAX_ATTEMPTS)"
+    sleep 3
+  done
+  
+  # Additional delay for full initialization
+  sleep 5
+  echo ""
+  
+  echo "🚀 Step 6/6: Starting n8n (will run ALL migrations)..."
+  docker compose up -d n8n > /dev/null 2>&1
+  echo -e "${GREEN}✅ n8n container started${NC}"
+  echo ""
+  
+  # ═══════════════════════════════════════════════════════════════
+  # Wait for n8n migrations to complete
+  # We check the migrations table to confirm UserManagement ran
+  # ═══════════════════════════════════════════════════════════════
+  
+  echo "⏳ Waiting for n8n migration to complete (max ${MAX_MIGRATION_WAIT}s)..."
+  START_TIME=$(date +%s)
   MIGRATION_CHECK_ATTEMPTS=0
-  MAX_MIGRATION_CHECK_ATTEMPTS=20  # 20 attempts × 3 seconds = 60 seconds max
+  MAX_MIGRATION_CHECK_ATTEMPTS=20  # 20 × 3 = 60 seconds
   MIGRATION_COMPLETE=false
   
   while [ $MIGRATION_CHECK_ATTEMPTS -lt $MAX_MIGRATION_CHECK_ATTEMPTS ]; do
     MIGRATION_CHECK_ATTEMPTS=$((MIGRATION_CHECK_ATTEMPTS + 1))
+    ELAPSED=$(($(date +%s) - START_TIME))
     
-    # Check if migration record exists again (means migration ran)
-    MIGRATION_EXISTS=$(PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
-      psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" -t \
-      -c "SELECT COUNT(*) FROM migrations WHERE name LIKE '%UserManagement%';" 2>/dev/null | tr -d ' ' || echo "0")
+    # Check if UserManagement migration exists
+    MIGRATION_COUNT=$(docker compose exec -T postgres \
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t \
+      -c "SELECT COUNT(*) FROM migrations WHERE name LIKE '%UserManagement%';" \
+      2>/dev/null | tr -d ' ' || echo "0")
     
-    if [ "$MIGRATION_EXISTS" -gt 0 ]; then
+    if [ "$MIGRATION_COUNT" -gt "0" ]; then
       echo -e "${GREEN}✅ Migration completed! (attempt $MIGRATION_CHECK_ATTEMPTS/$MAX_MIGRATION_CHECK_ATTEMPTS)${NC}"
       MIGRATION_COMPLETE=true
       break
-    else
-      echo "   ⏳ Waiting for migration... (attempt $MIGRATION_CHECK_ATTEMPTS/$MAX_MIGRATION_CHECK_ATTEMPTS)"
-      sleep 3
     fi
+    
+    if [ "$ELAPSED" -ge "$MAX_MIGRATION_WAIT" ]; then
+      echo -e "${RED}❌ Migration not completed within ${MAX_MIGRATION_WAIT} seconds!${NC}"
+      echo "   Check n8n logs: docker compose logs n8n"
+      exit 1
+    fi
+    
+    echo "   ⏳ Waiting for migration... (attempt $MIGRATION_CHECK_ATTEMPTS/$MAX_MIGRATION_CHECK_ATTEMPTS)"
+    sleep 3
   done
   
   if [ "$MIGRATION_COMPLETE" = false ]; then
-    echo -e "${RED}❌ Migration not completed within 60 seconds!${NC}"
-    echo "   Check n8n container logs: docker compose logs n8n"
+    echo -e "${RED}❌ Migration verification failed!${NC}"
     exit 1
   fi
   
-  # Additional small delay to ensure roles are fully written
+  # Small delay to ensure roles are fully written
   sleep 5
   echo ""
   
+  # ═══════════════════════════════════════════════════════════════
+  # Verify n8n API is accessible
+  # ═══════════════════════════════════════════════════════════════
+  
+  echo "⏳ Verifying n8n API accessibility..."
+  N8N_READY_ATTEMPTS=0
+  N8N_MAX_ATTEMPTS=30
+  
+  while [ $N8N_READY_ATTEMPTS -lt $N8N_MAX_ATTEMPTS ]; do
+    N8N_READY_ATTEMPTS=$((N8N_READY_ATTEMPTS + 1))
+    
+    if curl -sf "${N8N_URL}/healthz" > /dev/null 2>&1 || \
+       curl -sf "${N8N_URL}" > /dev/null 2>&1; then
+      echo -e "${GREEN}✅ n8n API is accessible! (attempt $N8N_READY_ATTEMPTS/$N8N_MAX_ATTEMPTS)${NC}"
+      break
+    fi
+    
+    if [ $N8N_READY_ATTEMPTS -eq $N8N_MAX_ATTEMPTS ]; then
+      echo -e "${RED}❌ n8n API not accessible after 90 seconds!${NC}"
+      exit 1
+    fi
+    
+    echo "   ⏳ Waiting for n8n API... (attempt $N8N_READY_ATTEMPTS/$N8N_MAX_ATTEMPTS)"
+    sleep 3
+  done
+  echo ""
+  
+  # ═══════════════════════════════════════════════════════════════
+  # Create owner with current credentials
+  # ═══════════════════════════════════════════════════════════════
+  
   echo "🔧 Creating new owner with current credentials..."
   
-  # Setup owner
-  SETUP_RESPONSE=$(curl -s -X POST \
+  SETUP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
     -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
     "${N8N_URL}/rest/owner/setup" \
@@ -173,11 +242,17 @@ EOSQL
     }" \
     2>&1)
   
-  if echo "$SETUP_RESPONSE" | grep -qi '"id"'; then
+  HTTP_CODE=$(echo "$SETUP_RESPONSE" | tail -n1)
+  RESPONSE_BODY=$(echo "$SETUP_RESPONSE" | sed '$d')
+  
+  if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ] || echo "$RESPONSE_BODY" | grep -qi '"id"'; then
     echo -e "${GREEN}✅ Owner created successfully${NC}"
   else
-    echo -e "${RED}❌ Failed to create owner${NC}"
-    echo "Response: $SETUP_RESPONSE"
+    echo -e "${RED}❌ Failed to create owner (HTTP $HTTP_CODE)${NC}"
+    echo "Response: $RESPONSE_BODY"
+    echo ""
+    echo "Debug info:"
+    docker compose logs --tail=50 n8n
     exit 1
   fi
 fi
