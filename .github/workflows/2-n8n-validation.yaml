@@ -1,9 +1,15 @@
 name: 2 n8n Validation (Optimized)
 
 on:
-  # Only triggered by infrastructure-check workflow or manually
-  workflow_call:
+  # 🔥 АВТОМАТИЧЕСКИЙ ЗАПУСК ПАРАЛЛЕЛЬНО С WORKFLOW 1
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  # Manual trigger
   workflow_dispatch:
+  # Вызов из других workflow (оставляем для совместимости)
+  workflow_call:
 
 concurrency:
   group: n8n-validation-${{ github.ref }}
