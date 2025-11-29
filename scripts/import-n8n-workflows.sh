@@ -90,18 +90,30 @@ echo ""
 if [ "$NEED_RESET" = true ]; then
   echo "🔧 Resetting n8n owner..."
   
-  # Delete all users from postgres (force clean)
-  echo "🗑️  Removing old owner from database..."
+  # Delete ALL n8n user management tables (including roles!)
+  echo "🗑️  Removing all user data from database..."
   
   # Use docker compose exec with proper postgres credentials
+  # Delete in correct order (foreign keys)
   PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
-    psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" \
-    -c "DELETE FROM \"user\";" 2>/dev/null || true
+    psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" <<-EOSQL 2>/dev/null || true
+      -- Delete user-related tables (reverse FK order)
+      DELETE FROM "shared_workflow";
+      DELETE FROM "shared_credentials";
+      DELETE FROM "auth_identity";
+      DELETE FROM "user";
+      DELETE FROM "role";
+      
+      -- Clear execution history (optional, for clean slate)
+      DELETE FROM "execution_entity";
+      DELETE FROM "webhook_entity";
+EOSQL
   
-  echo -e "${GREEN}✅ Old owner removed${NC}"
+  echo -e "${GREEN}✅ All user data removed${NC}"
   
-  # Wait for n8n to detect no owner
-  sleep 2
+  # Wait for n8n to detect no owner and reinitialize roles
+  echo "⏳ Waiting for n8n to reinitialize..."
+  sleep 5
   
   echo "🔧 Creating new owner with current credentials..."
   
