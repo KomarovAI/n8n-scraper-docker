@@ -92,7 +92,12 @@ if [ "$NEED_RESET" = true ]; then
   
   # Delete all users from postgres (force clean)
   echo "🗑️  Removing old owner from database..."
-  docker exec n8n-postgres psql -U n8n -d n8n -c "DELETE FROM \"user\";" 2>/dev/null || true
+  
+  # Use docker compose exec with proper postgres credentials
+  PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
+    psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" \
+    -c "DELETE FROM \"user\";" 2>/dev/null || true
+  
   echo -e "${GREEN}✅ Old owner removed${NC}"
   
   # Wait for n8n to detect no owner
