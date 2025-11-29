@@ -1,6 +1,6 @@
 #!/bin/bash
 # Import n8n workflows via API and activate them
-# This ensures workflows are loaded and active for testing
+# Uses proper n8n API authentication: login session with cookie
 
 set -e
 
@@ -19,6 +19,10 @@ N8N_URL="${N8N_URL:-http://localhost:5678}"
 N8N_USER="${N8N_USER:-admin}"
 N8N_PASSWORD="${N8N_PASSWORD}"
 WORKFLOWS_DIR="${WORKFLOWS_DIR:-workflows}"
+COOKIE_FILE="$(mktemp)"
+
+# Cleanup on exit
+trap "rm -f '$COOKIE_FILE'" EXIT
 
 if [ -z "$N8N_PASSWORD" ]; then
   echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
@@ -41,7 +45,7 @@ fi
 echo -e "${GREEN}✅ n8n is accessible${NC}"
 echo ""
 
-# Generate Basic Auth header
+# Generate Basic Auth header (for owner setup only)
 echo "🔐 Setting up Basic Authentication..."
 BASIC_AUTH=$(echo -n "${N8N_USER}:${N8N_PASSWORD}" | base64)
 AUTH_HEADER="Authorization: Basic ${BASIC_AUTH}"
@@ -82,6 +86,26 @@ else
 fi
 echo ""
 
+# LOGIN to get session cookie (REQUIRED for /rest/workflows)
+echo "🔐 Logging in to n8n..."
+LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
+  -H "Content-Type: application/json" \
+  "${N8N_URL}/rest/login" \
+  -d "{
+    \"email\": \"${N8N_USER}\",
+    \"password\": \"${N8N_PASSWORD}\"
+  }" \
+  2>&1)
+
+if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
+  echo -e "${GREEN}✅ Login successful, session cookie saved${NC}"
+else
+  echo -e "${RED}❌ Login failed${NC}"
+  echo "Response: $LOGIN_RESPONSE"
+  exit 1
+fi
+echo ""
+
 # Count workflows
 WORKFLOW_COUNT=$(ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | wc -l)
 
@@ -108,9 +132,9 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
   # Read workflow JSON
   WORKFLOW_JSON=$(cat "$workflow_file")
   
-  # Import workflow via API (using Basic Auth)
+  # Import workflow via API (using session cookie)
   IMPORT_RESPONSE=$(curl -s \
-    -H "${AUTH_HEADER}" \
+    -b "$COOKIE_FILE" \
     -H "Content-Type: application/json" \
     -X POST \
     "${N8N_URL}/rest/workflows" \
@@ -125,9 +149,9 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
     if [ -n "$WORKFLOW_ID" ]; then
       echo -e "${GREEN}✅ Imported (ID: $WORKFLOW_ID)${NC}"
       
-      # Activate workflow (using Basic Auth)
+      # Activate workflow (using session cookie)
       ACTIVATE_RESPONSE=$(curl -s \
-        -H "${AUTH_HEADER}" \
+        -b "$COOKIE_FILE" \
         -H "Content-Type: application/json" \
         -X PATCH \
         "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
