@@ -1,0 +1,44 @@
+# Aider AI Configuration for n8n-scraper-docker
+# https://aider.chat/docs/config.html
+
+model: gpt-4-turbo
+edit-format: diff
+auto-commits: false
+dirty-commits: true
+attribute-author: true
+attribute-committer: false
+attribute-commit-message: true
+
+# Context files always included
+read:
+  - .ai/context.md
+  - .ai/instructions.md
+  - ARCHITECTURE.md
+  - docker-compose.yml
+  - README.md
+  - SECURITY.md
+
+# Ignore patterns
+ignore:
+  - "*.pyc"
+  - "__pycache__/"
+  - ".pytest_cache/"
+  - "node_modules/"
+  - ".env"
+  - ".env.*"
+  - "backups/"
+  - "*.log"
+  - ".git/"
+  - ".github/"
+  - "data/"
+  - "logs/"
+  - ".DS_Store"
+
+# Suggested prompts for common tasks
+aider-prompts:
+  - "Add a new scraper for [website]"
+  - "Update ML routing logic to prioritize [scraper]"
+  - "Fix failing test in [test_file]"
+  - "Optimize [service] performance"
+  - "Add environment variable [VAR_NAME]"
+  - "Update dependencies in [requirements.txt]"
