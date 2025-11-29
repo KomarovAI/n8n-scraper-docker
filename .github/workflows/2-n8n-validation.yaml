@@ -27,8 +27,8 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n postgres redis prometheus grafana" }
-          - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n postgres redis" }
+          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n", monitoring: "prometheus grafana" }
+          - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n", monitoring: "" }
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
@@ -78,13 +78,13 @@ jobs:
       - name: 🚀 Start services
         run: |
           docker compose up -d postgres redis
-          sleep 8
+          sleep 12
           docker compose up -d ${{ matrix.test.services }}
       
       - name: ⏳ Wait for n8n
         run: |
           START=$(date +%s)
-          for i in {1..60}; do
+          for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
               docker compose ps
               exit 0
@@ -95,6 +95,14 @@ jobs:
           docker compose ps
           docker compose logs --tail=100 n8n
           exit 1
+      
+      - name: 📊 Start monitoring stack
+        if: matrix.test.monitoring != ''
+        run: |
+          echo "Starting monitoring services: ${{ matrix.test.monitoring }}"
+          docker compose up -d ${{ matrix.test.monitoring }}
+          sleep 5
+          docker compose ps
       
       - name: 🧪 Run test
         id: test
@@ -209,7 +217,7 @@ jobs:
       - name: 🚀 Start n8n stack
         run: |
           docker compose up -d postgres redis
-          sleep 10
+          sleep 12
           docker compose up -d n8n
       
       - name: ⏳ Wait for n8n
