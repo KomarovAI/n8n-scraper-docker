@@ -158,11 +158,11 @@ jobs:
           docker compose up -d ${{ matrix.test.services }}
       - run: |
           for i in {1..60}; do
-            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; exit 0; }
-            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting ${i}s..."
+            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; exit 0; }
+            [ $((i % 10)) -eq 0 ] && echo "Waiting ${i}s..."
             sleep 1
           done
-          echo "❌ Timeout"; docker compose logs --tail=50 n8n; exit 1
+          echo "Timeout"; docker compose logs --tail=50 n8n; exit 1
       - id: test
         run: |
           chmod +x ${{ matrix.test.script }}
@@ -217,11 +217,11 @@ jobs:
       - run: |
           START=$(date +%s)
           while [ $(($(date +%s) - START)) -lt ${{ matrix.test.timeout }} ]; do
-            [ "${{ matrix.test.slug }}" = "ollama" ] && curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && { echo "✅ Ollama ready"; exit 0; }
-            [ "${{ matrix.test.slug }}" = "ml-service" ] && curl -sf http://localhost:8000/health > /dev/null 2>&1 && { echo "✅ ML ready"; exit 0; }
+            [ "${{ matrix.test.slug }}" = "ollama" ] && curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && { echo "Ollama ready"; exit 0; }
+            [ "${{ matrix.test.slug }}" = "ml-service" ] && curl -sf http://localhost:8000/health > /dev/null 2>&1 && { echo "ML ready"; exit 0; }
             sleep 2
           done
-          echo "❌ Timeout"; exit 1
+          echo "Timeout"; exit 1
       - id: test
         if: matrix.test.slug == 'ml-service'
         run: curl -v http://localhost:8000/health | tee /tmp/ml-${{ matrix.test.slug }}-test.log
@@ -272,14 +272,14 @@ jobs:
           docker compose up -d n8n
       - run: |
           for i in {1..60}; do
-            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; exit 0; }
-            [ $((i % 10)) -eq 0 ] && echo "⌛ ${i}s"
+            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; exit 0; }
+            [ $((i % 10)) -eq 0 ] && echo "${i}s"
             sleep 1
           done
-          echo "❌ Timeout"; docker compose logs --tail=50 n8n; exit 1
+          echo "Timeout"; docker compose logs --tail=50 n8n; exit 1
       - id: test
         run: |
-          [ -f "tests/e2e/workflow-test.js" ] && node tests/e2e/workflow-test.js 2>&1 | tee /tmp/e2e-test.log || echo "⚠️ No E2E" | tee /tmp/e2e-test.log
+          [ -f "tests/e2e/workflow-test.js" ] && node tests/e2e/workflow-test.js 2>&1 | tee /tmp/e2e-test.log || echo "No E2E" | tee /tmp/e2e-test.log
         continue-on-error: true
       - id: save
         if: always()
@@ -329,14 +329,14 @@ jobs:
           docker compose up -d n8n
       - run: |
           for i in {1..60}; do
-            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; exit 0; }
-            [ $((i % 10)) -eq 0 ] && echo "⌛ ${i}s"
+            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; exit 0; }
+            [ $((i % 10)) -eq 0 ] && echo "${i}s"
             sleep 1
           done
-          echo "❌ Timeout"; docker compose logs --tail=50 n8n; exit 1
+          echo "Timeout"; docker compose logs --tail=50 n8n; exit 1
       - id: test
         run: |
-          [ -f "tests/n8n/test_workflows.sh" ] && bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/integration-test.log || echo "⚠️ No test" | tee /tmp/integration-test.log
+          [ -f "tests/n8n/test_workflows.sh" ] && bash tests/n8n/test_workflows.sh 2>&1 | tee /tmp/integration-test.log || echo "No test" | tee /tmp/integration-test.log
         continue-on-error: true
       - id: save
         if: always()
@@ -389,11 +389,11 @@ jobs:
           docker compose up -d n8n
       - run: |
           for i in {1..90}; do
-            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; sleep 10; exit 0; }
-            [ $((i % 15)) -eq 0 ] && echo "⌛ ${i}s"
+            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; sleep 10; exit 0; }
+            [ $((i % 15)) -eq 0 ] && echo "${i}s"
             sleep 1
           done
-          echo "❌ Timeout"; docker compose logs --tail=100 n8n; exit 1
+          echo "Timeout"; docker compose logs --tail=100 n8n; exit 1
       - run: |
           chmod +x scripts/import-n8n-workflows.sh
           export N8N_URL="http://localhost:5678" N8N_USER="${{ secrets.N8N_USER_CI }}" N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}" WORKFLOWS_DIR="workflows"
@@ -473,8 +473,8 @@ jobs:
           docker compose up -d tor prometheus grafana
       - run: |
           for i in {1..90}; do
-            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "✅ n8n ready"; break; }
-            [ $((i % 15)) -eq 0 ] && echo "⌛ ${i}s"
+            curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1 && { echo "n8n ready"; break; }
+            [ $((i % 15)) -eq 0 ] && echo "${i}s"
             sleep 1
           done
           sleep 10
