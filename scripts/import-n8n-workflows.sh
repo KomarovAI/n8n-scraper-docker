@@ -1,6 +1,6 @@
 #!/bin/bash
 # Import n8n workflows via API and activate them
-# Uses proper n8n API authentication: login session with cookie
+# Uses Basic Authentication (compatible with N8N_BASIC_AUTH_ACTIVE=true)
 
 set -e
 
@@ -19,10 +19,6 @@ N8N_URL="${N8N_URL:-http://localhost:5678}"
 N8N_USER="${N8N_USER:-admin@example.com}"
 N8N_PASSWORD="${N8N_PASSWORD}"
 WORKFLOWS_DIR="${WORKFLOWS_DIR:-workflows}"
-COOKIE_FILE="$(mktemp)"
-
-# Cleanup on exit
-trap "rm -f '$COOKIE_FILE'" EXIT
 
 if [ -z "$N8N_PASSWORD" ]; then
   echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
@@ -34,9 +30,17 @@ if [ -z "$N8N_USER" ]; then
   exit 1
 fi
 
+# Validate password length
+if [ ${#N8N_PASSWORD} -lt 8 ]; then
+  echo -e "${RED}❌ Password too short! Minimum 8 characters required.${NC}"
+  echo "   Current length: ${#N8N_PASSWORD}"
+  exit 1
+fi
+
 echo "📊 Configuration:"
 echo "   n8n URL: $N8N_URL"
 echo "   n8n User: $N8N_USER"
+echo "   Password length: ${#N8N_PASSWORD} chars"
 echo "   Workflows dir: $WORKFLOWS_DIR"
 echo ""
 
@@ -50,7 +54,7 @@ fi
 echo -e "${GREEN}✅ n8n is accessible${NC}"
 echo ""
 
-# Generate Basic Auth header (for owner setup only)
+# Generate Basic Auth header
 echo "🔐 Setting up Basic Authentication..."
 BASIC_AUTH=$(echo -n "${N8N_USER}:${N8N_PASSWORD}" | base64)
 AUTH_HEADER="Authorization: Basic ${BASIC_AUTH}"
@@ -91,47 +95,6 @@ else
 fi
 echo ""
 
-# LOGIN to get session cookie (REQUIRED for /rest/workflows)
-echo "🔐 Logging in to n8n..."
-echo "   Email: $N8N_USER"
-echo "   Password: ${N8N_PASSWORD:0:3}***"
-echo ""
-
-# Try login with 'email' field (newest n8n versions)
-LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
-  -H "Content-Type: application/json" \
-  "${N8N_URL}/rest/login" \
-  -d "{
-    \"email\": \"${N8N_USER}\",
-    \"password\": \"${N8N_PASSWORD}\"
-  }" \
-  2>&1)
-
-if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
-  echo -e "${GREEN}✅ Login successful (email field), session cookie saved${NC}"
-else
-  # Fallback: try with 'emailOrLdapLoginId' (older n8n versions)
-  echo -e "${YELLOW}⚠️  First login attempt failed, trying alternative field...${NC}"
-  
-  LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
-    -H "Content-Type: application/json" \
-    "${N8N_URL}/rest/login" \
-    -d "{
-      \"emailOrLdapLoginId\": \"${N8N_USER}\",
-      \"password\": \"${N8N_PASSWORD}\"
-    }" \
-    2>&1)
-  
-  if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
-    echo -e "${GREEN}✅ Login successful (emailOrLdapLoginId field), session cookie saved${NC}"
-  else
-    echo -e "${RED}❌ Login failed with both methods${NC}"
-    echo "Response: $LOGIN_RESPONSE"
-    exit 1
-  fi
-fi
-echo ""
-
 # Count workflows
 WORKFLOW_COUNT=$(ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | wc -l)
 
@@ -158,9 +121,9 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
   # Read workflow JSON
   WORKFLOW_JSON=$(cat "$workflow_file")
   
-  # Import workflow via API (using session cookie)
+  # Import workflow via API (using Basic Auth - no login session needed!)
   IMPORT_RESPONSE=$(curl -s \
-    -b "$COOKIE_FILE" \
+    -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
     -X POST \
     "${N8N_URL}/rest/workflows" \
@@ -175,9 +138,9 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
     if [ -n "$WORKFLOW_ID" ]; then
       echo -e "${GREEN}✅ Imported (ID: $WORKFLOW_ID)${NC}"
       
-      # Activate workflow (using session cookie)
+      # Activate workflow (using Basic Auth)
       ACTIVATE_RESPONSE=$(curl -s \
-        -b "$COOKIE_FILE" \
+        -H "${AUTH_HEADER}" \
         -H "Content-Type: application/json" \
         -X PATCH \
         "${N8N_URL}/rest/workflows/${WORKFLOW_ID}" \
