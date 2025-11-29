@@ -89,7 +89,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
@@ -141,7 +141,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
@@ -204,7 +204,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
@@ -257,7 +257,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
@@ -314,7 +314,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
@@ -374,7 +374,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
@@ -456,7 +456,7 @@ jobs:
         with: {name: n8n-enhanced-image, path: /tmp}
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
-          cat > .env << 'EOF'
+          cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
