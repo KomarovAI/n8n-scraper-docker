@@ -231,14 +231,3 @@ jobs:
           name: infra-logs-*
           failOnError: false
         if: always()
-
-  # NEW: Trigger n8n validation workflow after infrastructure check succeeds
-  trigger-validation:
-    name: Trigger n8n Validation
-    needs: [fast-validation, smoke-tests, summary]
-    # Only trigger if infrastructure check succeeded
-    if: |
-      needs.fast-validation.result == 'success' &&
-      needs.smoke-tests.result == 'success'
-    uses: ./.github/workflows/2-n8n-validation.yaml
-    secrets: inherit
