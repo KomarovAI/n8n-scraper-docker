@@ -1,9 +1,11 @@
 name: 3 Full E2E Testing Pipeline
 
 on:
-  # Автоматически запускается после workflow 2
+  # Автоматически запускается после ОБОИХ workflow 1 & 2
   workflow_run:
-    workflows: ["2 n8n Validation (Optimized)"]
+    workflows: 
+      - "1 Infrastructure Check"
+      - "2 n8n Validation (Optimized)"
     types:
       - completed
   # Ручной запуск
@@ -22,12 +24,49 @@ env:
 
 jobs:
   # =============================================================================
-  # DOWNLOAD ARTIFACTS FROM WORKFLOW 1 & 2
+  # CHECK IF SHOULD RUN (Skip logic для предотвращения двойного запуска)
+  # =============================================================================
+  check-trigger:
+    name: Check Trigger Conditions
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      trigger_workflow: ${{ steps.check.outputs.trigger_workflow }}
+    steps:
+      - name: 🔍 Determine if should run
+        id: check
+        run: |
+          # Если manual/workflow_call - всегда запускаем
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "workflow_call" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "trigger_workflow=manual" >> $GITHUB_OUTPUT
+            echo "✅ Manual trigger - will run"
+            exit 0
+          fi
+          
+          # Если workflow_run - проверяем какой workflow завершился
+          TRIGGER_WORKFLOW="${{ github.event.workflow.name }}"
+          echo "trigger_workflow=$TRIGGER_WORKFLOW" >> $GITHUB_OUTPUT
+          
+          # Запускаемся ТОЛЬКО от Workflow 2
+          if [ "$TRIGGER_WORKFLOW" = "2 n8n Validation (Optimized)" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Triggered by Workflow 2 - will run"
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Triggered by Workflow 1 - skipping (will wait for Workflow 2)"
+          fi
+
+  # =============================================================================
+  # DOWNLOAD ARTIFACTS FROM WORKFLOW 1 & 2 (С RETRY LOGIC)
   # =============================================================================
   collect-previous-results:
     name: Collect Results from Workflows 1 & 2
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_run == 'true'
     outputs:
       infra_status: ${{ steps.parse.outputs.infra_status }}
       validation_status: ${{ steps.parse.outputs.validation_status }}
@@ -37,11 +76,33 @@ jobs:
       - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      - name: 📥 Download Infrastructure artifacts
-        uses: actions/download-artifact@v6
-        with:
-          name: infrastructure-check-summary
-          path: collected/infra/
+      - name: ⏳ Wait for Workflow 1 artifacts (with retry)
+        run: |
+          echo "🔍 Waiting for Workflow 1 artifacts..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+            
+            # Пробуем скачать артефакты Workflow 1
+            if gh run download --name infrastructure-check-summary --dir collected/infra/ 2>/dev/null; then
+              echo "✅ Workflow 1 artifacts found!"
+              exit 0
+            fi
+            
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "⏳ Workflow 1 artifacts not ready yet, waiting 10s..."
+              sleep 10
+            fi
+          done
+          
+          echo "⚠️ Workflow 1 artifacts not found after $MAX_ATTEMPTS attempts"
+          echo "⚠️ Continuing without Workflow 1 data..."
+          mkdir -p collected/infra
+        env:
+          GH_TOKEN: ${{ github.token }}
         continue-on-error: true
       
       - name: 📥 Download n8n Validation artifacts
@@ -56,14 +117,21 @@ jobs:
         run: |
           mkdir -p collected/infra collected/validation
           
+          echo "====================================="
+          echo "📊 COLLECTED RESULTS"
+          echo "====================================="
+          
           # Parse Infrastructure status
           if [ -f "collected/infra/infra-summary.md" ]; then
             INFRA_STATUS="✅ success"
+            echo "Workflow 1 (Infrastructure):"
             cat collected/infra/infra-summary.md
           else
-            INFRA_STATUS="⚠️ not found"
+            INFRA_STATUS="⚠️ not available"
+            echo "⚠️ Workflow 1 artifacts not found"
           fi
           echo "infra_status=$INFRA_STATUS" >> $GITHUB_OUTPUT
+          echo ""
           
           # Parse Validation status
           if [ -f "collected/validation/validation-report.json" ]; then
@@ -72,21 +140,23 @@ jobs:
             FAILED=$(jq -r '.[] | select(.job == "n8n-workflows") | .failed' collected/validation/validation-report.json 2>/dev/null || echo "0")
             echo "workflow_passed=$PASSED" >> $GITHUB_OUTPUT
             echo "workflow_failed=$FAILED" >> $GITHUB_OUTPUT
+            echo "Workflow 2 (n8n Validation):"
             cat collected/validation/summary.md
           else
-            VALIDATION_STATUS="⚠️ not found"
+            VALIDATION_STATUS="⚠️ not available"
             echo "workflow_passed=0" >> $GITHUB_OUTPUT
             echo "workflow_failed=0" >> $GITHUB_OUTPUT
+            echo "⚠️ Workflow 2 artifacts not found"
           fi
           echo "validation_status=$VALIDATION_STATUS" >> $GITHUB_OUTPUT
+          echo ""
           
-          echo "===================================="
-          echo "📊 COLLECTED RESULTS"
-          echo "===================================="
+          echo "====================================="
           echo "Infrastructure: $INFRA_STATUS"
           echo "Validation: $VALIDATION_STATUS"
           echo "Workflows Passed: $PASSED"
           echo "Workflows Failed: $FAILED"
+          echo "====================================="
       
       - name: 📤 Upload collected results
         uses: actions/upload-artifact@v5
@@ -576,8 +646,8 @@ jobs:
   final-summary:
     name: 📊 Final E2E Summary (All Workflows)
     runs-on: ubuntu-latest
-    needs: [collect-previous-results, e2e-tests, ml-services, n8n-integration, master-e2e]
-    if: always()
+    needs: [check-trigger, collect-previous-results, e2e-tests, ml-services, n8n-integration, master-e2e]
+    if: always() && needs.check-trigger.outputs.should_run == 'true'
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
@@ -633,6 +703,7 @@ jobs:
           VALIDATION_STATUS="${{ needs.collect-previous-results.outputs.validation_status }}"
           WORKFLOW_PASSED="${{ needs.collect-previous-results.outputs.workflow_passed }}"
           WORKFLOW_FAILED="${{ needs.collect-previous-results.outputs.workflow_failed }}"
+          TRIGGER_WORKFLOW="${{ needs.check-trigger.outputs.trigger_workflow }}"
           
           # Emoji helper
           get_emoji() {
@@ -653,6 +724,8 @@ jobs:
           # Generate comprehensive summary
           cat > final-report/FINAL-SUMMARY.md << EOF
           # 🎯 FINAL E2E TESTING SUMMARY (All Workflows)
+          
+          **Triggered by**: $TRIGGER_WORKFLOW
           
           ## 📊 Results from Previous Workflows
           
@@ -719,6 +792,7 @@ jobs:
             --argjson run_number "${{ github.run_number }}" \
             --arg sha "${{ github.sha }}" \
             --arg ref "${{ github.ref }}" \
+            --arg trigger "$TRIGGER_WORKFLOW" \
             '{
               pipeline: {
                 workflow_1_infrastructure: {
@@ -730,6 +804,7 @@ jobs:
                   workflows_failed: $workflow_failed
                 },
                 workflow_3_e2e: {
+                  triggered_by: $trigger,
                   e2e_tests: $e2e_status,
                   ml_services: $ml_status,
                   integration: $integration_status,
