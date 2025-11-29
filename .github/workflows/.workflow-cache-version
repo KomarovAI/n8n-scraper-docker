@@ -1,9 +1,0 @@
-# Workflow Cache Version
-
-Last updated: 2025-11-27 22:55 MSK
-Reason: Force workflow cache refresh after fixing YAML syntax
-
-GitHub Actions caches workflow files during parsing. If parsing fails,
-the cache is not updated. This file forces cache invalidation.
-
-Workflow file SHA: d81b8e50b3dd0a9bf96a2b2eab49666d9d88e257
