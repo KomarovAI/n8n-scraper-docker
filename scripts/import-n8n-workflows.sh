@@ -113,32 +113,33 @@ EOSQL
   echo ""
   
   # Wait for n8n to detect no owner and reinitialize roles
-  # Use /rest/login instead of /rest/owner/setup - more reliable!
-  echo "⏳ Waiting for n8n database initialization (max 180s)..."
+  # CRITICAL: Check role table directly to avoid race condition!
+  echo "⏳ Waiting for n8n to recreate roles (max 60s)..."
   
-  HEALTHCHECK_ATTEMPTS=0
-  MAX_HEALTHCHECK_ATTEMPTS=60  # 60 attempts × 3 seconds = 180 seconds max
-  N8N_READY=false
+  ROLE_CHECK_ATTEMPTS=0
+  MAX_ROLE_CHECK_ATTEMPTS=20  # 20 attempts × 3 seconds = 60 seconds max
+  ROLE_READY=false
   
-  while [ $HEALTHCHECK_ATTEMPTS -lt $MAX_HEALTHCHECK_ATTEMPTS ]; do
-    HEALTHCHECK_ATTEMPTS=$((HEALTHCHECK_ATTEMPTS + 1))
+  while [ $ROLE_CHECK_ATTEMPTS -lt $MAX_ROLE_CHECK_ATTEMPTS ]; do
+    ROLE_CHECK_ATTEMPTS=$((ROLE_CHECK_ATTEMPTS + 1))
     
-    # Check /rest/login endpoint - available immediately after n8n starts
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${N8N_URL}/rest/login" 2>&1)
+    # Check if global:owner role exists in database
+    ROLE_COUNT=$(PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
+      psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" -t \
+      -c "SELECT COUNT(*) FROM role WHERE slug = 'global:owner';" 2>/dev/null | tr -d ' ' || echo "0")
     
-    # 200 or 401 means n8n is ready (401 = needs auth, which is OK)
-    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
-      echo -e "${GREEN}✅ n8n database is ready! (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)${NC}"
-      N8N_READY=true
+    if [ "$ROLE_COUNT" -gt 0 ]; then
+      echo -e "${GREEN}✅ Role 'global:owner' exists in database! (attempt $ROLE_CHECK_ATTEMPTS/$MAX_ROLE_CHECK_ATTEMPTS)${NC}"
+      ROLE_READY=true
       break
     else
-      echo "   ⏳ Waiting for DB initialization... HTTP $HTTP_CODE (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)"
+      echo "   ⏳ Waiting for role creation... (attempt $ROLE_CHECK_ATTEMPTS/$MAX_ROLE_CHECK_ATTEMPTS)"
       sleep 3
     fi
   done
   
-  if [ "$N8N_READY" = false ]; then
-    echo -e "${RED}❌ n8n database failed to initialize within 180 seconds!${NC}"
+  if [ "$ROLE_READY" = false ]; then
+    echo -e "${RED}❌ Role 'global:owner' not created within 60 seconds!${NC}"
     echo "   Check n8n container logs: docker compose logs n8n"
     exit 1
   fi
