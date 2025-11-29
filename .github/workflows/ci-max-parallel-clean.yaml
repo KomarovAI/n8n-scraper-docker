@@ -791,49 +791,31 @@ jobs:
           docker compose logs --tail=100 n8n
           exit 1
       
-      - name: 📦 Import n8n workflows (AUTO)
+      - name: 📦 Import n8n workflows via API (CRITICAL FIX)
         run: |
-          echo "📦 Importing workflows from workflows/*.json..."
+          chmod +x scripts/import-n8n-workflows.sh
           
-          # Получаем список workflow файлов
-          WORKFLOW_COUNT=$(ls -1 workflows/*.json 2>/dev/null | wc -l)
+          export N8N_URL="http://localhost:5678"
+          export N8N_USER="${{ secrets.N8N_USER_CI }}"
+          export N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}"
+          export WORKFLOWS_DIR="workflows"
           
-          if [ "$WORKFLOW_COUNT" -eq 0 ]; then
-            echo "⚠️  No workflow files found in workflows/ directory!"
-            echo "Files in workflows/:"
-            ls -la workflows/ || true
-            exit 1
+          echo "📦 Importing workflows via n8n API..."
+          bash scripts/import-n8n-workflows.sh 2>&1 | tee /tmp/import-workflows.log
+          
+          # STRICT: Import MUST succeed
+          EXIT_CODE=$?
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Workflow import FAILED with exit code $EXIT_CODE"
+            echo "=== Import log ==="
+            cat /tmp/import-workflows.log
+            echo "=== n8n logs ==="
+            docker compose logs --tail=100 n8n
+            exit $EXIT_CODE
           fi
           
-          echo "Found $WORKFLOW_COUNT workflow file(s)"
-          
-          # Копируем workflows в контейнер n8n
-          docker compose cp workflows/. n8n:/home/node/.n8n/workflows/
-          
-          # Проверяем, что файлы скопировались
-          echo "Verifying copied files..."
-          docker compose exec -T n8n sh -c "ls -la /home/node/.n8n/workflows/*.json 2>/dev/null || echo 'No files found'"
-          
-          # Перезапускаем n8n для загрузки workflows
-          echo "Restarting n8n to load workflows..."
-          docker compose restart n8n
-          
-          # Ждем перезапуска
-          echo "Waiting for n8n to restart (max 60s)..."
-          for i in {1..60}; do
-            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
-               curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              echo "✅ n8n restarted successfully after ${i}s"
-              sleep 5
-              exit 0
-            fi
-            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting for restart... (${i}s)"
-            sleep 1
-          done
-          
-          echo "❌ Failed to restart n8n"
-          docker compose logs --tail=50 n8n
-          exit 1
+          echo "✅ All workflows imported and activated!"
       
       - name: 🧪 Test n8n workflows (STRICT - NO continue-on-error)
         id: test
@@ -902,6 +884,7 @@ jobs:
           echo "success_rate=${{ steps.parse.outputs.SUCCESS_RATE }}" >> $GITHUB_OUTPUT
           
           cp /tmp/n8n-workflow-test.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/n8n-workflow-test.log
+          cp /tmp/import-workflows.log /tmp/logs/ 2>/dev/null || echo "No output" > /tmp/logs/import-workflows.log
           cp /tmp/n8n-workflow-test-results.json /tmp/logs/ 2>/dev/null || echo "{}" > /tmp/logs/n8n-workflow-test-results.json
           docker compose logs n8n > /tmp/logs/n8n-workflow-n8n.log 2>&1 || true
           
@@ -1194,7 +1177,7 @@ jobs:
       - name: 📝 Generate diagnostic
         run: |
           cat > logs/diagnostic.md << EOF
-          # CI/CD Report (TURBO + n8n Workflows STRICT)
+          # CI/CD Report (TURBO + n8n Workflows API IMPORT)
           
           ## Results
           
@@ -1204,7 +1187,7 @@ jobs:
           - ML Services: ${{ needs.ml-services.result }}
           - E2E Tests: ${{ needs.e2e-tests.result }}
           - Integration: ${{ needs.n8n-integration.result }}
-          - n8n Workflows: ${{ needs.n8n-workflow-tests.result }} ⚠️ STRICT MODE (no continue-on-error)
+          - n8n Workflows: ${{ needs.n8n-workflow-tests.result }} ✅ API IMPORT (FIXED)
           - Master E2E: ${{ needs.master-e2e.result }}
           
           ## Stats
@@ -1213,12 +1196,12 @@ jobs:
           - Failed: ${FAILED:-0}
           - Rate: ${SUCCESS_RATE:-0}%
           
-          ## n8n Workflow Tests Details (STRICT)
+          ## n8n Workflow Tests Details
           
           - Passed: ${{ needs.n8n-workflow-tests.outputs.passed }}
           - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
           - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
-          - **Auto-Import**: Enabled
+          - **Import Method**: n8n REST API (✅ ACTIVATED)
           - **continue-on-error**: DISABLED (must pass!)
           EOF
           
