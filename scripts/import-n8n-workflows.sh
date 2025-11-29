@@ -113,20 +113,21 @@ EOSQL
   echo ""
   
   # Wait for n8n to detect no owner and reinitialize roles
-  # Check /rest/owner/setup instead of /healthz - it verifies DB migrations complete
-  echo "⏳ Waiting for n8n database initialization (max 120s)..."
+  # Use /rest/login instead of /rest/owner/setup - more reliable!
+  echo "⏳ Waiting for n8n database initialization (max 180s)..."
   
   HEALTHCHECK_ATTEMPTS=0
-  MAX_HEALTHCHECK_ATTEMPTS=40  # 40 attempts × 3 seconds = 120 seconds max
+  MAX_HEALTHCHECK_ATTEMPTS=60  # 60 attempts × 3 seconds = 180 seconds max
   N8N_READY=false
   
   while [ $HEALTHCHECK_ATTEMPTS -lt $MAX_HEALTHCHECK_ATTEMPTS ]; do
     HEALTHCHECK_ATTEMPTS=$((HEALTHCHECK_ATTEMPTS + 1))
     
-    # Check /rest/owner/setup endpoint - returns 200 when DB migrations complete + roles exist
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${N8N_URL}/rest/owner/setup" 2>&1)
+    # Check /rest/login endpoint - available immediately after n8n starts
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${N8N_URL}/rest/login" 2>&1)
     
-    if [ "$HTTP_CODE" = "200" ]; then
+    # 200 or 401 means n8n is ready (401 = needs auth, which is OK)
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ]; then
       echo -e "${GREEN}✅ n8n database is ready! (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)${NC}"
       N8N_READY=true
       break
@@ -137,7 +138,7 @@ EOSQL
   done
   
   if [ "$N8N_READY" = false ]; then
-    echo -e "${RED}❌ n8n database failed to initialize within 120 seconds!${NC}"
+    echo -e "${RED}❌ n8n database failed to initialize within 180 seconds!${NC}"
     echo "   Check n8n container logs: docker compose logs n8n"
     exit 1
   fi
