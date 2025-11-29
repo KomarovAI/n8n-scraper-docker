@@ -72,6 +72,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     needs: fast-validation
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,13 +98,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           FIRECRAWL_API_KEY=
           JINA_API_KEY=
           EOF
@@ -127,6 +135,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: fast-validation
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     strategy:
       fail-fast: false
       matrix:
@@ -142,13 +158,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           FIRECRAWL_API_KEY=
           JINA_API_KEY=
           EOF
@@ -190,6 +206,14 @@ jobs:
     timeout-minutes: 10
     needs: fast-validation
     continue-on-error: true
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     strategy:
       fail-fast: false
       matrix:
@@ -205,13 +229,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           EOF
       - run: docker compose up -d ${{ matrix.test.services }}
       - run: |
@@ -247,6 +271,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: fast-validation
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     outputs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
@@ -258,13 +290,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           EOF
       - run: |
           docker compose up -d postgres redis
@@ -304,6 +336,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: fast-validation
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     outputs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
@@ -315,13 +355,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           EOF
       - run: |
           docker compose up -d postgres redis
@@ -361,6 +401,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: fast-validation
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     outputs:
       duration: ${{ steps.save.outputs.duration }}
       passed: ${{ steps.save.outputs.passed }}
@@ -375,13 +423,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           EOF
       - run: |
           docker compose up -d postgres redis
@@ -396,13 +444,13 @@ jobs:
           echo "Timeout"; docker compose logs --tail=100 n8n; exit 1
       - run: |
           chmod +x scripts/import-n8n-workflows.sh
-          export N8N_URL="http://localhost:5678" N8N_USER="${{ secrets.N8N_USER_CI }}" N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}" WORKFLOWS_DIR="workflows"
+          export N8N_URL="http://localhost:5678" N8N_USER="${N8N_USER_CI}" N8N_PASSWORD="${N8N_PASSWORD_CI}" WORKFLOWS_DIR="workflows"
           bash scripts/import-n8n-workflows.sh 2>&1 | tee /tmp/import-workflows.log
           [ $? -ne 0 ] && { cat /tmp/import-workflows.log; docker compose logs --tail=100 n8n; exit 1; }
       - id: test
         run: |
           chmod +x scripts/test-n8n-workflows.sh
-          export N8N_URL="http://localhost:5678" N8N_USER="${{ secrets.N8N_USER_CI }}" N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}" WEBHOOK_PATH="/webhook-test/scrape" TEST_TIMEOUT="30" REPORT_FILE="/tmp/n8n-workflow-test-results.json"
+          export N8N_URL="http://localhost:5678" N8N_USER="${N8N_USER_CI}" N8N_PASSWORD="${N8N_PASSWORD_CI}" WEBHOOK_PATH="/webhook-test/scrape" TEST_TIMEOUT="30" REPORT_FILE="/tmp/n8n-workflow-test-results.json"
           bash scripts/test-n8n-workflows.sh 2>&1 | tee /tmp/n8n-workflow-test.log
           [ $? -ne 0 ] && { docker compose logs --tail=100 n8n; exit 1; }
       - id: parse
@@ -446,6 +494,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [smoke-tests, essential-tests, e2e-tests, n8n-integration, ml-services, n8n-workflow-tests]
+    env:
+      POSTGRES_PASSWORD_CI: ${{ secrets.POSTGRES_PASSWORD_CI }}
+      REDIS_PASSWORD_CI: ${{ secrets.REDIS_PASSWORD_CI }}
+      N8N_USER_CI: ${{ secrets.N8N_USER_CI }}
+      N8N_PASSWORD_CI: ${{ secrets.N8N_PASSWORD_CI }}
+      TOR_CONTROL_PASSWORD_CI: ${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+      GRAFANA_USER_CI: ${{ secrets.GRAFANA_USER_CI }}
+      GRAFANA_PASSWORD_CI: ${{ secrets.GRAFANA_PASSWORD_CI }}
     outputs:
       duration: ${{ steps.save.outputs.duration }}
     steps:
@@ -457,13 +513,13 @@ jobs:
       - run: docker load < /tmp/n8n-enhanced.tar.gz
       - run: |
           cat > .env << EOF
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD_CI}
+          REDIS_PASSWORD=${REDIS_PASSWORD_CI}
+          N8N_USER=${N8N_USER_CI}
+          N8N_PASSWORD=${N8N_PASSWORD_CI}
+          TOR_CONTROL_PASSWORD=${TOR_CONTROL_PASSWORD_CI}
+          GRAFANA_USER=${GRAFANA_USER_CI}
+          GRAFANA_PASSWORD=${GRAFANA_PASSWORD_CI}
           EOF
       - run: |
           docker compose up -d postgres redis
