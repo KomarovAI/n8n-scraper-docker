@@ -76,6 +76,7 @@ desktop.ini
 # CI/CD Artifacts (exclude from context, but keep workflows)
 .github/workflows/*.log
 .github/scripts/*.log
+.github/workflows/.workflow-cache-version
 
 # Temporary Files
 tmp/
@@ -109,10 +110,15 @@ temp/
 *.ico
 *.pdf
 
-# Documentation that's redundant (already removed in v2.0)
-# QUICKSTART.md - merged into README
-# AI_MANIFEST.md - replaced by .aimeta.json
-# docs/INDEX.md - removed redundant navigation
+# IDE-specific AI configs (REMOVED - use .ai/ instead)
+.aider.conf.yml
+.cursorrules
+.aidocs-map.json
+
+# Redundant documentation (REMOVED)
+ctrf/README.md
+docs/CONTRIBUTING_AI.md
+docs/CTRF_AI_OPTIMIZED.md
 
 # Low-priority technical docs (only read if specifically asked)
 docs/CI_CD_OPTIMIZATION.md
