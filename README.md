@@ -6,12 +6,15 @@
 [![Security](https://img.shields.io/badge/Security-CVE--Patched-green)](SECURITY.md)  
 [![Dependabot](https://img.shields.io/badge/Dependabot-Enabled-success)](.github/dependabot.yml)
 
+<!-- AI_OVERVIEW_START -->
 > 🧠 **AI/ML Production v3.0**: Docker-first n8n scraping platform optimized for neural network integration. **87% success rate**, **5.3s latency**, **$2.88/1000 URLs**.
 
 **Core Stack**: n8n + PostgreSQL + Redis + Tor + ML-service + Ollama + Prometheus + Grafana
+<!-- AI_OVERVIEW_END -->
 
 ---
 
+<!-- AI_QUICKSTART_START -->
 ## ⚡ Quick Start (3 steps)
 
 ```bash
@@ -30,9 +33,11 @@ docker-compose restart ml-service
 
 **Services**: n8n (5678), Grafana (3000), Prometheus (9090)  
 **Credentials**: See `.credentials.txt` after setup
+<!-- AI_QUICKSTART_END -->
 
 ---
 
+<!-- AI_METRICS_START -->
 ## 📊 Production Metrics
 
 | Metric | Value | Context |
@@ -43,9 +48,11 @@ docker-compose restart ml-service
 | **Cloudflare Bypass** | 90-95% | ML smart detection |
 | **Memory Leaks** | Zero | 72h continuous |
 | **Uptime** | 99.8% | Production |
+<!-- AI_METRICS_END -->
 
 ---
 
+<!-- AI_ARCHITECTURE_START -->
 ## 🏛️ Architecture
 
 **8 Microservices** (Docker Compose orchestrated):
@@ -70,6 +77,7 @@ grafana (3000)     → Dashboards
 - ✅ Automated dependency updates
 
 **Details**: [ARCHITECTURE.md](ARCHITECTURE.md)
+<!-- AI_ARCHITECTURE_END -->
 
 ---
 
@@ -141,6 +149,7 @@ bash tests/master/test_full_e2e.sh
 
 ---
 
+<!-- AI_SECURITY_START -->
 ## 🛡️ Security
 
 ⚠️ **CRITICAL**: Update Docker Compose to v2.40.2+ ([CVE-2025-62725](SECURITY.md#cve-2025-62725-docker-compose-path-traversal))
@@ -167,9 +176,11 @@ bash tests/master/test_full_e2e.sh
 ✅ Security scanning (CI/CD)
 
 **Full Security Policy**: [SECURITY.md](SECURITY.md)
+<!-- AI_SECURITY_END -->
 
 ---
 
+<!-- AI_DOCUMENTATION_START -->
 ## 📚 Documentation
 
 ### Core Documentation
@@ -184,7 +195,10 @@ bash tests/master/test_full_e2e.sh
 - **Hybrid Fallback**: [docs/HYBRID_FALLBACK_STRATEGY.md](docs/HYBRID_FALLBACK_STRATEGY.md) - Scraper routing logic
 - **Enhanced Scrapers**: [docs/NODRIVER_ENHANCED_V2.md](docs/NODRIVER_ENHANCED_V2.md) - nodriver implementation
 - **AI Instructions**: [.ai/instructions.md](.ai/instructions.md) - AI assistant guidelines
+- **AI Context**: [.ai/context.md](.ai/context.md) - Quick project overview for AI
+- **AI Contributing**: [docs/CONTRIBUTING_AI.md](docs/CONTRIBUTING_AI.md) - AI agent contribution guide
 - **CI/CD Testing**: [docs/CTRF_AI_OPTIMIZED.md](docs/CTRF_AI_OPTIMIZED.md) - Test architecture
+<!-- AI_DOCUMENTATION_END -->
 
 ---
 
@@ -218,11 +232,15 @@ gunzip -c backups/backup-2025-11-28.sql.gz | docker-compose exec -T postgres psq
 
 ```
 .
-├── .ai/instructions.md          # Unified AI guidelines
+├── .ai/
+│   ├── context.md              # Quick overview for AI agents
+│   └── instructions.md         # Unified AI guidelines
 ├── .github/
 │   ├── workflows/              # CI/CD pipelines (14 tests)
-│   └── dependabot.yml          # Automated dependency updates
+│   ├── dependabot.yml          # Automated dependency updates
+│   └── CODEOWNERS              # Auto-merge rules for AI
 ├── docs/                       # Technical documentation
+│   ├── CONTRIBUTING_AI.md      # AI agent contribution guide
 │   ├── DISASTER_RECOVERY.md    # Backup/restore procedures
 │   ├── TROUBLESHOOTING.md      # Common issues
 │   └── ...                     # Advanced topics
@@ -231,9 +249,13 @@ gunzip -c backups/backup-2025-11-28.sql.gz | docker-compose exec -T postgres psq
 ├── scrapers/                   # Scraper implementations
 ├── scripts/
 │   ├── setup.sh                # Automated setup
+│   ├── ai-check.sh             # AI pre-commit validation
 │   └── test-n8n-workflows.sh   # Workflow API testing
 ├── tests/master/               # E2E tests
 ├── workflows/                  # n8n JSON workflows
+├── .aider.conf.yml             # Aider AI configuration
+├── .cursorrules                # Cursor AI rules
+├── .llms.txt                   # Claude Code Agent context
 ├── docker-compose.yml          # Service orchestration
 ├── Dockerfile.n8n-ml-optimized # ML-ready build
 ├── SECURITY.md                 # Security policy
@@ -246,6 +268,7 @@ gunzip -c backups/backup-2025-11-28.sql.gz | docker-compose exec -T postgres psq
 
 ✅ Production-Ready (tested in prod)  
 ✅ AI/ML v3.0 (92% token reduction)  
+✅ **AI-Optimized Documentation** (context.md, instructions.md, CONTRIBUTING_AI.md)  
 ✅ Multi-stage Docker builds  
 ✅ CUDA/ONNX support  
 ✅ Parallel tests (2.5min, 14 tests)  
@@ -260,4 +283,4 @@ gunzip -c backups/backup-2025-11-28.sql.gz | docker-compose exec -T postgres psq
 
 **Version**: 3.0.0 | **License**: MIT | **Author**: [KomarovAI](https://github.com/KomarovAI)
 
-**Updated**: 2025-11-28
+**Updated**: 2025-11-29
