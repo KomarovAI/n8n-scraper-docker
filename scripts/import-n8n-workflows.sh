@@ -113,36 +113,35 @@ EOSQL
   echo ""
   
   # Wait for n8n to detect no owner and reinitialize roles
-  # Use healthcheck polling instead of static sleep
-  echo "⏳ Waiting for n8n to reinitialize (max 60s)..."
+  # Check /rest/owner/setup instead of /healthz - it verifies DB migrations complete
+  echo "⏳ Waiting for n8n database initialization (max 120s)..."
   
   HEALTHCHECK_ATTEMPTS=0
-  MAX_HEALTHCHECK_ATTEMPTS=20  # 20 attempts × 3 seconds = 60 seconds max
+  MAX_HEALTHCHECK_ATTEMPTS=40  # 40 attempts × 3 seconds = 120 seconds max
   N8N_READY=false
   
   while [ $HEALTHCHECK_ATTEMPTS -lt $MAX_HEALTHCHECK_ATTEMPTS ]; do
     HEALTHCHECK_ATTEMPTS=$((HEALTHCHECK_ATTEMPTS + 1))
     
-    # Check n8n health endpoint
-    if curl -sf "${N8N_URL}/healthz" > /dev/null 2>&1; then
-      echo -e "${GREEN}✅ n8n is ready! (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)${NC}"
+    # Check /rest/owner/setup endpoint - returns 200 when DB migrations complete + roles exist
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${N8N_URL}/rest/owner/setup" 2>&1)
+    
+    if [ "$HTTP_CODE" = "200" ]; then
+      echo -e "${GREEN}✅ n8n database is ready! (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)${NC}"
       N8N_READY=true
       break
     else
-      echo "   ⏳ Waiting for n8n... (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)"
+      echo "   ⏳ Waiting for DB initialization... HTTP $HTTP_CODE (attempt $HEALTHCHECK_ATTEMPTS/$MAX_HEALTHCHECK_ATTEMPTS)"
       sleep 3
     fi
   done
   
   if [ "$N8N_READY" = false ]; then
-    echo -e "${RED}❌ n8n failed to initialize within 60 seconds!${NC}"
+    echo -e "${RED}❌ n8n database failed to initialize within 120 seconds!${NC}"
     echo "   Check n8n container logs: docker compose logs n8n"
     exit 1
   fi
   
-  # Additional small delay to ensure roles are fully initialized
-  echo "   ⏳ Final stabilization wait..."
-  sleep 5
   echo ""
   
   echo "🔧 Creating new owner with current credentials..."
