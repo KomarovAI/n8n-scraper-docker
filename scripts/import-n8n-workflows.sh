@@ -16,7 +16,7 @@ echo ""
 
 # Configuration
 N8N_URL="${N8N_URL:-http://localhost:5678}"
-N8N_USER="${N8N_USER:-admin}"
+N8N_USER="${N8N_USER:-admin@example.com}"
 N8N_PASSWORD="${N8N_PASSWORD}"
 WORKFLOWS_DIR="${WORKFLOWS_DIR:-workflows}"
 COOKIE_FILE="$(mktemp)"
@@ -26,6 +26,11 @@ trap "rm -f '$COOKIE_FILE'" EXIT
 
 if [ -z "$N8N_PASSWORD" ]; then
   echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
+  exit 1
+fi
+
+if [ -z "$N8N_USER" ]; then
+  echo -e "${RED}❌ N8N_USER not set!${NC}"
   exit 1
 fi
 
@@ -88,6 +93,11 @@ echo ""
 
 # LOGIN to get session cookie (REQUIRED for /rest/workflows)
 echo "🔐 Logging in to n8n..."
+echo "   Email: $N8N_USER"
+echo "   Password: ${N8N_PASSWORD:0:3}***"
+echo ""
+
+# Try login with 'email' field (newest n8n versions)
 LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
   -H "Content-Type: application/json" \
   "${N8N_URL}/rest/login" \
@@ -98,11 +108,27 @@ LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
   2>&1)
 
 if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
-  echo -e "${GREEN}✅ Login successful, session cookie saved${NC}"
+  echo -e "${GREEN}✅ Login successful (email field), session cookie saved${NC}"
 else
-  echo -e "${RED}❌ Login failed${NC}"
-  echo "Response: $LOGIN_RESPONSE"
-  exit 1
+  # Fallback: try with 'emailOrLdapLoginId' (older n8n versions)
+  echo -e "${YELLOW}⚠️  First login attempt failed, trying alternative field...${NC}"
+  
+  LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
+    -H "Content-Type: application/json" \
+    "${N8N_URL}/rest/login" \
+    -d "{
+      \"emailOrLdapLoginId\": \"${N8N_USER}\",
+      \"password\": \"${N8N_PASSWORD}\"
+    }" \
+    2>&1)
+  
+  if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
+    echo -e "${GREEN}✅ Login successful (emailOrLdapLoginId field), session cookie saved${NC}"
+  else
+    echo -e "${RED}❌ Login failed with both methods${NC}"
+    echo "Response: $LOGIN_RESPONSE"
+    exit 1
+  fi
 fi
 echo ""
 
