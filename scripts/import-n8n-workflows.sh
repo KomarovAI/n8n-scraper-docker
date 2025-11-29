@@ -90,11 +90,10 @@ echo ""
 if [ "$NEED_RESET" = true ]; then
   echo "🔧 Resetting n8n owner..."
   
-  # Delete ALL n8n user management tables (including roles!)
-  echo "🗑️  Removing all user data from database..."
+  # Delete ALL n8n user management tables AND migration records!
+  echo "🗑️  Removing all user data and migration records..."
   
   # Use docker compose exec with proper postgres credentials
-  # Delete in correct order (foreign keys)
   PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
     psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" <<-EOSQL 2>/dev/null || true
       -- Delete user-related tables (reverse FK order)
@@ -107,43 +106,54 @@ if [ "$NEED_RESET" = true ]; then
       -- Clear execution history (optional, for clean slate)
       DELETE FROM "execution_entity";
       DELETE FROM "webhook_entity";
+      
+      -- CRITICAL: Force n8n to recreate roles by deleting migration record!
+      DELETE FROM "migrations" WHERE name LIKE '%UserManagement%';
 EOSQL
   
-  echo -e "${GREEN}✅ All user data removed${NC}"
+  echo -e "${GREEN}✅ All user data and migration records removed${NC}"
+  echo "   n8n will recreate roles on next startup"
   echo ""
   
-  # Wait for n8n to detect no owner and reinitialize roles
-  # CRITICAL: Check role table directly to avoid race condition!
-  echo "⏳ Waiting for n8n to recreate roles (max 60s)..."
+  # Restart n8n to trigger migrations
+  echo "🔄 Restarting n8n to trigger role creation..."
+  docker compose restart n8n > /dev/null 2>&1
+  echo -e "${GREEN}✅ n8n restarted${NC}"
+  echo ""
   
-  ROLE_CHECK_ATTEMPTS=0
-  MAX_ROLE_CHECK_ATTEMPTS=20  # 20 attempts × 3 seconds = 60 seconds max
-  ROLE_READY=false
+  # Wait for n8n to complete migrations and recreate roles
+  echo "⏳ Waiting for n8n migration to complete (max 60s)..."
   
-  while [ $ROLE_CHECK_ATTEMPTS -lt $MAX_ROLE_CHECK_ATTEMPTS ]; do
-    ROLE_CHECK_ATTEMPTS=$((ROLE_CHECK_ATTEMPTS + 1))
+  MIGRATION_CHECK_ATTEMPTS=0
+  MAX_MIGRATION_CHECK_ATTEMPTS=20  # 20 attempts × 3 seconds = 60 seconds max
+  MIGRATION_COMPLETE=false
+  
+  while [ $MIGRATION_CHECK_ATTEMPTS -lt $MAX_MIGRATION_CHECK_ATTEMPTS ]; do
+    MIGRATION_CHECK_ATTEMPTS=$((MIGRATION_CHECK_ATTEMPTS + 1))
     
-    # Check if global:owner role exists in database
-    ROLE_COUNT=$(PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
+    # Check if migration record exists again (means migration ran)
+    MIGRATION_EXISTS=$(PGPASSWORD="${POSTGRES_PASSWORD}" docker compose exec -T postgres \
       psql -U "${POSTGRES_USER:-scraper_user}" -d "${POSTGRES_DB:-scraper_db}" -t \
-      -c "SELECT COUNT(*) FROM role WHERE slug = 'global:owner';" 2>/dev/null | tr -d ' ' || echo "0")
+      -c "SELECT COUNT(*) FROM migrations WHERE name LIKE '%UserManagement%';" 2>/dev/null | tr -d ' ' || echo "0")
     
-    if [ "$ROLE_COUNT" -gt 0 ]; then
-      echo -e "${GREEN}✅ Role 'global:owner' exists in database! (attempt $ROLE_CHECK_ATTEMPTS/$MAX_ROLE_CHECK_ATTEMPTS)${NC}"
-      ROLE_READY=true
+    if [ "$MIGRATION_EXISTS" -gt 0 ]; then
+      echo -e "${GREEN}✅ Migration completed! (attempt $MIGRATION_CHECK_ATTEMPTS/$MAX_MIGRATION_CHECK_ATTEMPTS)${NC}"
+      MIGRATION_COMPLETE=true
       break
     else
-      echo "   ⏳ Waiting for role creation... (attempt $ROLE_CHECK_ATTEMPTS/$MAX_ROLE_CHECK_ATTEMPTS)"
+      echo "   ⏳ Waiting for migration... (attempt $MIGRATION_CHECK_ATTEMPTS/$MAX_MIGRATION_CHECK_ATTEMPTS)"
       sleep 3
     fi
   done
   
-  if [ "$ROLE_READY" = false ]; then
-    echo -e "${RED}❌ Role 'global:owner' not created within 60 seconds!${NC}"
+  if [ "$MIGRATION_COMPLETE" = false ]; then
+    echo -e "${RED}❌ Migration not completed within 60 seconds!${NC}"
     echo "   Check n8n container logs: docker compose logs n8n"
     exit 1
   fi
   
+  # Additional small delay to ensure roles are fully written
+  sleep 5
   echo ""
   
   echo "🔧 Creating new owner with current credentials..."
