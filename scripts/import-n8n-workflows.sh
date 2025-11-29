@@ -7,6 +7,7 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo "📦 n8n Workflow Import & Activation"
@@ -52,111 +53,148 @@ echo -e "${GREEN}✅ Basic Auth ready${NC}"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════
-# Check if owner exists using CORRECT endpoint
-# /rest/owner - Returns {"data": {"isInstanceOwnerSetUp": true/false}}
-# No authentication required for this endpoint
+# IDEMPOTENT OWNER SETUP
+# 
+# n8n does NOT provide an endpoint to check if owner exists!
+# Solution: Always POST to /rest/owner/setup and handle results:
+#   - 200/201 → Owner created successfully
+#   - 400/409 → Owner already exists (NORMAL, not an error!)
+# 
+# This is the production-proven approach used in:
+#   - digital-boss/n8n-manager
+#   - Community recommendations
+#   - Kubernetes/Docker deployments
 # ═══════════════════════════════════════════════════════════════
 
-echo "🔍 Checking if owner exists..."
-OWNER_RESPONSE=$(curl -s -w "\n%{http_code}" "${N8N_URL}/rest/owner" 2>&1)
+echo "🔧 Setting up owner account..."
 
-OWNER_HTTP_CODE=$(echo "$OWNER_RESPONSE" | tail -n1)
-OWNER_BODY=$(echo "$OWNER_RESPONSE" | sed '$d')
+SETUP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+  -H "Content-Type: application/json" \
+  -X POST "${N8N_URL}/rest/owner/setup" \
+  -d "{
+    \"email\": \"${N8N_USER}\",
+    \"password\": \"${N8N_PASSWORD}\",
+    \"firstName\": \"CI\",
+    \"lastName\": \"User\"
+  }" 2>&1)
 
-if [ "$OWNER_HTTP_CODE" -ne 200 ]; then
-  echo -e "${RED}❌ Failed to check owner status (HTTP $OWNER_HTTP_CODE)${NC}"
-  echo "Response: $OWNER_BODY"
+SETUP_HTTP=$(echo "$SETUP_RESPONSE" | tail -n1)
+SETUP_BODY=$(echo "$SETUP_RESPONSE" | sed '$d')
+
+OWNER_CREATED=false
+
+if [ "$SETUP_HTTP" -eq 200 ] || [ "$SETUP_HTTP" -eq 201 ]; then
+  echo -e "${GREEN}✅ Owner created successfully (first-time setup)${NC}"
+  OWNER_CREATED=true
+  echo ""
+  
+elif [ "$SETUP_HTTP" -eq 400 ] || [ "$SETUP_HTTP" -eq 409 ]; then
+  echo -e "${BLUE}ℹ️  Owner already exists (HTTP $SETUP_HTTP)${NC}"
+  
+  # Check if it's "already exists" vs "validation error"
+  if echo "$SETUP_BODY" | grep -qi "already\|exist\|conflict"; then
+    echo -e "${BLUE}ℹ️  Owner setup already completed${NC}"
+    OWNER_CREATED=false
+  else
+    echo -e "${RED}❌ Validation error from owner setup:${NC}"
+    echo "$SETUP_BODY"
+    exit 1
+  fi
+  echo ""
+  
+else
+  echo -e "${RED}❌ Unexpected response from /rest/owner/setup (HTTP $SETUP_HTTP)${NC}"
+  echo "Response: $SETUP_BODY"
   exit 1
 fi
 
-# Parse isInstanceOwnerSetUp from response
-IS_OWNER_SETUP=$(echo "$OWNER_BODY" | grep -oP '"isInstanceOwnerSetUp":\s*\K(true|false)')
+# ═══════════════════════════════════════════════════════════════
+# VERIFY CREDENTIALS
+# 
+# Always verify that credentials work, regardless of whether owner
+# was just created or already existed.
+# 
+# If owner was JUST created:
+#   - Auth middleware needs time to initialize
+#   - Wait 10s + retry with exponential backoff
+# 
+# If owner ALREADY existed:
+#   - Auth should work immediately
+#   - If 401 → password is DIFFERENT (clear error)
+# ═══════════════════════════════════════════════════════════════
 
-if [ "$IS_OWNER_SETUP" = "true" ]; then
-  echo -e "${GREEN}✅ Owner already exists${NC}"
+if [ "$OWNER_CREATED" = true ]; then
+  # Owner just created - auth middleware needs time
+  echo "⏳ Waiting 10s for auth middleware initialization..."
+  sleep 10
   echo ""
-  
-  # Verify auth works
-  echo "🔍 Verifying authentication..."
-  ME_RESPONSE=$(curl -s -w "\n%{http_code}" \
+fi
+
+echo "🔍 Verifying credentials..."
+
+AUTH_READY=false
+MAX_ATTEMPTS=10
+
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+  ME_CHECK=$(curl -s -w "\n%{http_code}" \
     -H "${AUTH_HEADER}" \
     "${N8N_URL}/rest/me" 2>&1)
   
-  ME_HTTP_CODE=$(echo "$ME_RESPONSE" | tail -n1)
+  ME_STATUS=$(echo "$ME_CHECK" | tail -n1)
+  ME_BODY=$(echo "$ME_CHECK" | sed '$d')
   
-  if [ "$ME_HTTP_CODE" -eq 200 ]; then
-    echo -e "${GREEN}✅ Authentication verified${NC}"
-    echo ""
-  elif [ "$ME_HTTP_CODE" -eq 401 ]; then
-    echo -e "${RED}❌ Authentication failed - wrong credentials${NC}"
-    echo -e "${YELLOW}⚠️  Owner exists but password is different${NC}"
-    echo -e "${YELLOW}⚠️  Update N8N_PASSWORD in GitHub Secrets${NC}"
-    exit 1
-  else
-    echo -e "${RED}❌ Unexpected response from /rest/me (HTTP $ME_HTTP_CODE)${NC}"
-    exit 1
-  fi
-else
-  echo -e "${YELLOW}⚠️  Owner not created yet${NC}"
-  echo ""
-  
-  # Create owner
-  echo "🔧 Creating owner account..."
-  SETUP_RESPONSE=$(curl -s -w "\n%{http_code}" \
-    -H "Content-Type: application/json" \
-    -X POST "${N8N_URL}/rest/owner/setup" \
-    -d "{
-      \"email\": \"${N8N_USER}\",
-      \"password\": \"${N8N_PASSWORD}\",
-      \"firstName\": \"CI\",
-      \"lastName\": \"User\"
-    }" 2>&1)
-  
-  SETUP_HTTP_CODE=$(echo "$SETUP_RESPONSE" | tail -n1)
-  SETUP_BODY=$(echo "$SETUP_RESPONSE" | sed '$d')
-  
-  if [ "$SETUP_HTTP_CODE" -eq 200 ] || [ "$SETUP_HTTP_CODE" -eq 201 ]; then
-    echo -e "${GREEN}✅ Owner created successfully${NC}"
-    echo ""
-    
-    # Wait for auth middleware to initialize
-    echo "⏳ Waiting 10s for auth middleware initialization..."
-    sleep 10
-    
-    # Verify auth is ready (retry up to 10 times)
-    echo "🔍 Verifying auth readiness..."
-    AUTH_READY=false
-    
-    for attempt in {1..10}; do
-      ME_CHECK=$(curl -s -w "\n%{http_code}" \
-        -H "${AUTH_HEADER}" \
-        "${N8N_URL}/rest/me" 2>&1)
-      
-      ME_STATUS=$(echo "$ME_CHECK" | tail -n1)
-      
-      if [ "$ME_STATUS" -eq 200 ]; then
-        echo -e "${GREEN}✅ Auth ready after attempt $attempt${NC}"
-        AUTH_READY=true
-        break
-      fi
-      
-      echo "   Attempt $attempt/10: Auth not ready yet (HTTP $ME_STATUS), retrying in 2s..."
-      sleep 2
-    done
-    
-    if [ "$AUTH_READY" = false ]; then
-      echo -e "${RED}❌ Auth failed to initialize after 10 attempts (30s total)${NC}"
-      echo -e "${YELLOW}⚠️  This indicates n8n auth middleware issue${NC}"
-      exit 1
+  if [ "$ME_STATUS" -eq 200 ]; then
+    if [ "$attempt" -eq 1 ]; then
+      echo -e "${GREEN}✅ Credentials valid${NC}"
+    else
+      echo -e "${GREEN}✅ Auth ready after attempt $attempt${NC}"
     fi
-    
-    echo ""
+    AUTH_READY=true
+    break
+  fi
+  
+  if [ "$ME_STATUS" -eq 401 ]; then
+    if [ "$OWNER_CREATED" = false ]; then
+      # Owner existed before, 401 means WRONG PASSWORD
+      echo -e "${RED}❌ Authentication failed (HTTP 401)${NC}"
+      echo -e "${RED}❌ Owner exists but password is DIFFERENT${NC}"
+      echo -e "${YELLOW}⚠️  Update N8N_PASSWORD in GitHub Secrets to match existing owner${NC}"
+      exit 1
+    else
+      # Owner just created, 401 might mean auth not ready yet
+      if [ "$attempt" -lt $MAX_ATTEMPTS ]; then
+        echo "   Attempt $attempt/$MAX_ATTEMPTS: Auth not ready (HTTP 401), retrying in 2s..."
+        sleep 2
+        continue
+      else
+        echo -e "${RED}❌ Auth failed to initialize after $MAX_ATTEMPTS attempts${NC}"
+        exit 1
+      fi
+    fi
+  fi
+  
+  # Other HTTP codes (404, 500, etc.)
+  if [ "$OWNER_CREATED" = true ] && [ "$attempt" -lt $MAX_ATTEMPTS ]; then
+    echo "   Attempt $attempt/$MAX_ATTEMPTS: Unexpected status (HTTP $ME_STATUS), retrying in 2s..."
+    sleep 2
   else
-    echo -e "${RED}❌ Failed to create owner (HTTP $SETUP_HTTP_CODE)${NC}"
-    echo "Response: $SETUP_BODY"
+    echo -e "${RED}❌ Unexpected response from /rest/me (HTTP $ME_STATUS)${NC}"
+    echo "Response: ${ME_BODY:0:200}"
     exit 1
   fi
+done
+
+if [ "$AUTH_READY" = false ]; then
+  echo -e "${RED}❌ Auth failed to initialize after $MAX_ATTEMPTS attempts (30s total)${NC}"
+  echo -e "${YELLOW}⚠️  This indicates n8n auth middleware issue${NC}"
+  exit 1
 fi
+
+echo ""
+
+# ═══════════════════════════════════════════════════════════════
+# IMPORT WORKFLOWS
+# ═══════════════════════════════════════════════════════════════
 
 # Count workflows
 WORKFLOW_COUNT=$(ls -1 "$WORKFLOWS_DIR"/*.json 2>/dev/null | wc -l)
