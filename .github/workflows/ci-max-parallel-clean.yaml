@@ -1119,17 +1119,19 @@ jobs:
           # ✅ Integration
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          # ❗ n8n Workflows - КРИТИЧНО: проверяем passed/failed из outputs
+          # ❗ n8n Workflows - КРИТИЧНО: сначала присваиваем переменные
           WORKFLOWS_PASSED="${{ needs.n8n-workflow-tests.outputs.passed }}"
           WORKFLOWS_FAILED="${{ needs.n8n-workflow-tests.outputs.failed }}"
+          N8N_WORKFLOW_RESULT="${{ needs.n8n-workflow-tests.result }}"
           
-          if [ "${{ needs.n8n-workflow-tests.result }}" == "success" ] && \
-             [ "${WORKFLOWS_PASSED:-0}" -gt 0 ] && \
-             [ "${WORKFLOWS_FAILED:-999}" -eq 0 ]; then
+          # ЗАТЕМ проверяем с использованием [[ ]]
+          if [[ "$N8N_WORKFLOW_RESULT" == "success" ]] && \
+             [[ "${WORKFLOWS_PASSED:-0}" -gt 0 ]] && \
+             [[ "${WORKFLOWS_FAILED:-999}" -eq 0 ]]; then
             PASSED=$((PASSED + 1))
           else
             FAILED=$((FAILED + 1))
-            echo "⚠️ n8n-workflow-tests: result=${{ needs.n8n-workflow-tests.result }}, passed=$WORKFLOWS_PASSED, failed=$WORKFLOWS_FAILED"
+            echo "⚠️ n8n-workflow-tests: result=$N8N_WORKFLOW_RESULT, passed=$WORKFLOWS_PASSED, failed=$WORKFLOWS_FAILED"
           fi
           
           # ✅ Master E2E
