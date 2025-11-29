@@ -115,10 +115,12 @@ EOSQL
   echo "   n8n will recreate roles on next startup"
   echo ""
   
-  # Restart n8n to trigger migrations
-  echo "🔄 Restarting n8n to trigger role creation..."
-  docker compose restart n8n > /dev/null 2>&1
-  echo -e "${GREEN}✅ n8n restarted${NC}"
+  # Fully recreate n8n container to trigger migrations
+  echo "🔄 Recreating n8n container to trigger migrations..."
+  docker compose stop n8n > /dev/null 2>&1
+  docker compose rm -f n8n > /dev/null 2>&1
+  docker compose up -d n8n --force-recreate > /dev/null 2>&1
+  echo -e "${GREEN}✅ n8n container recreated${NC}"
   echo ""
   
   # Wait for n8n to complete migrations and recreate roles
