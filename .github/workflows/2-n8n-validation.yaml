@@ -371,21 +371,46 @@ jobs:
           # Merge all JSON metrics into single array
           jq -s '.' metrics/*.json > final-report/validation-report.json 2>/dev/null || echo '[]' > final-report/validation-report.json
           
-          # Generate concise markdown summary
-          cat > final-report/summary.md << 'EOF'
+          # Parse actual test results from validation-report.json
+          HEALTH_EXIT=$(jq -r '.[] | select(.job == "essential-health") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
+          HEALTH_DURATION=$(jq -r '.[] | select(.job == "essential-health") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
+          
+          WORKFLOW_EXIT=$(jq -r '.[] | select(.job == "essential-workflow") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
+          WORKFLOW_DURATION=$(jq -r '.[] | select(.job == "essential-workflow") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
+          
+          N8N_EXIT=$(jq -r '.[] | select(.job == "n8n-workflows") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
+          N8N_DURATION=$(jq -r '.[] | select(.job == "n8n-workflows") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
+          
+          # Emoji mapping function
+          get_emoji() {
+            case "$1" in
+              "success") echo "✅" ;;
+              "failure") echo "❌" ;;
+              "skipped") echo "⏭️" ;;
+              "cancelled") echo "🚫" ;;
+              *) echo "❓" ;;
+            esac
+          }
+          
+          HEALTH_EMOJI=$(get_emoji "$HEALTH_EXIT")
+          WORKFLOW_EMOJI=$(get_emoji "$WORKFLOW_EXIT")
+          N8N_EMOJI=$(get_emoji "$N8N_EXIT")
+          
+          # Generate accurate markdown summary with emoji
+          cat > final-report/summary.md << EOF
           # n8n Validation Summary
           
-          **Workflow Results**:
+          **Test Results**:
+          - Essential Health: $HEALTH_EMOJI **$HEALTH_EXIT** (${HEALTH_DURATION}s)
+          - Essential Workflow: $WORKFLOW_EMOJI **$WORKFLOW_EXIT** (${WORKFLOW_DURATION}s)
+          - n8n Workflows: $N8N_EMOJI **$N8N_EXIT** (${N8N_DURATION}s)
+          
+          **Workflow Test Details**:
           - Passed: ${{ needs.n8n-workflow-tests.outputs.passed }}
           - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
           - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
-          - Duration: ${{ needs.n8n-workflow-tests.outputs.duration }}s
           
-          **Overall Status**:
-          - Essential Tests: ${{ needs.essential-tests.result }}
-          - Workflow Tests: ${{ needs.n8n-workflow-tests.result }}
-          
-          **Full metrics**: See `validation-report.json`
+          **Full metrics**: See \`validation-report.json\`
           
           ---
           
@@ -397,9 +422,14 @@ jobs:
           EOF
           
           # Print for GitHub Actions UI
+          echo "====================================="
+          echo "📊 n8n VALIDATION SUMMARY"
+          echo "====================================="
           cat final-report/summary.md
-          echo "---"
-          echo "📊 Detailed metrics:"
+          echo ""
+          echo "====================================="
+          echo "📊 DETAILED METRICS (validation-report.json)"
+          echo "====================================="
           jq '.' final-report/validation-report.json
       
       - name: 📤 Upload final report
