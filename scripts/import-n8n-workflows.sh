@@ -52,35 +52,57 @@ echo -e "${GREEN}✅ Basic Auth ready${NC}"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════
-# Test credentials using CORRECT endpoint
-# /rest/me - Internal API endpoint for Basic Auth
-# /api/v1/me - Public API endpoint requiring API key (WRONG!)
+# Check if owner exists using CORRECT endpoint
+# /rest/owner - Returns {"data": {"isInstanceOwnerSetUp": true/false}}
+# No authentication required for this endpoint
 # ═══════════════════════════════════════════════════════════════
 
-echo "🔍 Testing credentials via /rest/me..."
-ME_RESPONSE=$(curl -s -w "\n%{http_code}" \
-  -H "${AUTH_HEADER}" \
-  "${N8N_URL}/rest/me" 2>&1)
+echo "🔍 Checking if owner exists..."
+OWNER_RESPONSE=$(curl -s -w "\n%{http_code}" "${N8N_URL}/rest/owner" 2>&1)
 
-ME_HTTP_CODE=$(echo "$ME_RESPONSE" | tail -n1)
-ME_BODY=$(echo "$ME_RESPONSE" | sed '$d')
+OWNER_HTTP_CODE=$(echo "$OWNER_RESPONSE" | tail -n1)
+OWNER_BODY=$(echo "$OWNER_RESPONSE" | sed '$d')
 
-if [ "$ME_HTTP_CODE" -eq 200 ]; then
-  echo -e "${GREEN}✅ Credentials valid, auth ready${NC}"
-  echo ""
-elif [ "$ME_HTTP_CODE" -eq 401 ]; then
-  echo -e "${YELLOW}⚠️  401 Unauthorized - owner exists with different password${NC}"
-  echo -e "${YELLOW}⚠️  This should not happen in CI (clean environment)${NC}"
-  echo -e "${RED}❌ Manual intervention required: Update GitHub Secrets${NC}"
+if [ "$OWNER_HTTP_CODE" -ne 200 ]; then
+  echo -e "${RED}❌ Failed to check owner status (HTTP $OWNER_HTTP_CODE)${NC}"
+  echo "Response: $OWNER_BODY"
   exit 1
-elif [ "$ME_HTTP_CODE" -eq 404 ]; then
+fi
+
+# Parse isInstanceOwnerSetUp from response
+IS_OWNER_SETUP=$(echo "$OWNER_BODY" | grep -oP '"isInstanceOwnerSetUp":\s*\K(true|false)')
+
+if [ "$IS_OWNER_SETUP" = "true" ]; then
+  echo -e "${GREEN}✅ Owner already exists${NC}"
+  echo ""
+  
+  # Verify auth works
+  echo "🔍 Verifying authentication..."
+  ME_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "${AUTH_HEADER}" \
+    "${N8N_URL}/rest/me" 2>&1)
+  
+  ME_HTTP_CODE=$(echo "$ME_RESPONSE" | tail -n1)
+  
+  if [ "$ME_HTTP_CODE" -eq 200 ]; then
+    echo -e "${GREEN}✅ Authentication verified${NC}"
+    echo ""
+  elif [ "$ME_HTTP_CODE" -eq 401 ]; then
+    echo -e "${RED}❌ Authentication failed - wrong credentials${NC}"
+    echo -e "${YELLOW}⚠️  Owner exists but password is different${NC}"
+    echo -e "${YELLOW}⚠️  Update N8N_PASSWORD in GitHub Secrets${NC}"
+    exit 1
+  else
+    echo -e "${RED}❌ Unexpected response from /rest/me (HTTP $ME_HTTP_CODE)${NC}"
+    exit 1
+  fi
+else
   echo -e "${YELLOW}⚠️  Owner not created yet${NC}"
   echo ""
   
   # Create owner
   echo "🔧 Creating owner account..."
   SETUP_RESPONSE=$(curl -s -w "\n%{http_code}" \
-    -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
     -X POST "${N8N_URL}/rest/owner/setup" \
     -d "{
@@ -97,20 +119,43 @@ elif [ "$ME_HTTP_CODE" -eq 404 ]; then
     echo -e "${GREEN}✅ Owner created successfully${NC}"
     echo ""
     
-    # Small delay for auth middleware to stabilize (empirically 3-5s is enough)
-    echo "⏳ Waiting 5s for auth stabilization..."
-    sleep 5
-    echo -e "${GREEN}✅ Ready to import workflows${NC}"
+    # Wait for auth middleware to initialize
+    echo "⏳ Waiting 10s for auth middleware initialization..."
+    sleep 10
+    
+    # Verify auth is ready (retry up to 10 times)
+    echo "🔍 Verifying auth readiness..."
+    AUTH_READY=false
+    
+    for attempt in {1..10}; do
+      ME_CHECK=$(curl -s -w "\n%{http_code}" \
+        -H "${AUTH_HEADER}" \
+        "${N8N_URL}/rest/me" 2>&1)
+      
+      ME_STATUS=$(echo "$ME_CHECK" | tail -n1)
+      
+      if [ "$ME_STATUS" -eq 200 ]; then
+        echo -e "${GREEN}✅ Auth ready after attempt $attempt${NC}"
+        AUTH_READY=true
+        break
+      fi
+      
+      echo "   Attempt $attempt/10: Auth not ready yet (HTTP $ME_STATUS), retrying in 2s..."
+      sleep 2
+    done
+    
+    if [ "$AUTH_READY" = false ]; then
+      echo -e "${RED}❌ Auth failed to initialize after 10 attempts (30s total)${NC}"
+      echo -e "${YELLOW}⚠️  This indicates n8n auth middleware issue${NC}"
+      exit 1
+    fi
+    
     echo ""
   else
     echo -e "${RED}❌ Failed to create owner (HTTP $SETUP_HTTP_CODE)${NC}"
     echo "Response: $SETUP_BODY"
     exit 1
   fi
-else
-  echo -e "${RED}❌ Unexpected response from /rest/me (HTTP $ME_HTTP_CODE)${NC}"
-  echo "Response: $ME_BODY"
-  exit 1
 fi
 
 # Count workflows
