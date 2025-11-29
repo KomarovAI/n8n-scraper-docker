@@ -1,6 +1,6 @@
 #!/bin/bash
 # Automated n8n Workflow Testing for CI/CD
-# Tests scraper workflows via n8n webhook API with proper authentication
+# Tests scraper workflows via n8n webhook API with Basic Authentication
 
 set -euo pipefail  # CRITICAL: -o pipefail ensures pipe failures are caught
 
@@ -15,14 +15,10 @@ echo ""
 
 # Configuration
 N8N_URL="${N8N_URL:-http://localhost:5678}"
-N8N_USER="${N8N_USER:-admin}"
+N8N_USER="${N8N_USER:-admin@example.com}"
 N8N_PASSWORD="${N8N_PASSWORD}"
 WEBHOOK_PATH="${WEBHOOK_PATH:-/webhook-test/scrape}"
 TIMEOUT="${TEST_TIMEOUT:-30}"
-COOKIE_FILE="$(mktemp)"
-
-# Cleanup on exit
-trap "rm -f '$COOKIE_FILE'" EXIT
 
 if [ -z "$N8N_PASSWORD" ]; then
   echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
@@ -47,6 +43,7 @@ RESULTS=()
 echo "📊 Configuration:"
 echo "   n8n URL: $N8N_URL"
 echo "   n8n User: $N8N_USER"
+echo "   Password length: ${#N8N_PASSWORD} chars"
 echo "   Webhook: $WEBHOOK_PATH"
 echo "   Timeout: ${TIMEOUT}s"
 echo "   Test URLs: ${#TEST_URLS[@]}"
@@ -64,24 +61,11 @@ fi
 echo -e "${GREEN}✅ n8n is accessible${NC}"
 echo ""
 
-# LOGIN to get session cookie (for authenticated webhook requests)
-echo "🔐 Logging in to n8n..."
-LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
-  -H "Content-Type: application/json" \
-  "${N8N_URL}/rest/login" \
-  -d "{
-    \"email\": \"${N8N_USER}\",
-    \"password\": \"${N8N_PASSWORD}\"
-  }" \
-  2>&1)
-
-if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
-  echo -e "${GREEN}✅ Login successful, session cookie saved${NC}"
-else
-  echo -e "${YELLOW}⚠️  Login failed, proceeding without authentication${NC}"
-  echo "   (Webhook might work if publicly accessible)"
-  rm -f "$COOKIE_FILE"
-fi
+# Generate Basic Auth header
+echo "🔐 Setting up Basic Authentication..."
+BASIC_AUTH=$(echo -n "${N8N_USER}:${N8N_PASSWORD}" | base64)
+AUTH_HEADER="Authorization: Basic ${BASIC_AUTH}"
+echo -e "${GREEN}✅ Basic Auth header created${NC}"
 echo ""
 
 # Function to test URL
@@ -92,14 +76,11 @@ test_url() {
   TOTAL=$((TOTAL + 1))
   echo -n "[Test $TOTAL/${#TEST_URLS[@]}] Testing: $url ... "
   
-  # Build curl command with cookie if available
-  CURL_CMD="curl -s -X POST"
-  [ -f "$COOKIE_FILE" ] && CURL_CMD="$CURL_CMD -b $COOKIE_FILE"
-  
-  # Execute scraper workflow via webhook
-  RESPONSE=$($CURL_CMD \
-    "${N8N_URL}${WEBHOOK_PATH}" \
+  # Execute scraper workflow via webhook with Basic Auth
+  RESPONSE=$(curl -s -X POST \
+    -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
+    "${N8N_URL}${WEBHOOK_PATH}" \
     -d "{\"url\": \"$url\", \"options\": {\"timeout\": 10000}}" \
     --max-time "$TIMEOUT" \
     2>&1 || echo "REQUEST_FAILED")
@@ -199,6 +180,6 @@ else
   echo "   1. Check n8n logs: docker-compose logs n8n"
   echo "   2. Verify workflows are active in n8n UI"
   echo "   3. Check webhook path: ${N8N_URL}${WEBHOOK_PATH}"
-  echo "   4. Test manually: curl -X POST ${N8N_URL}${WEBHOOK_PATH} -d '{\"url\":\"https://example.com\"}'"
+  echo "   4. Test manually: curl -u ${N8N_USER}:*** -X POST ${N8N_URL}${WEBHOOK_PATH} -d '{\"url\":\"https://example.com\"}'"
   exit 1
 fi
