@@ -1,6 +1,6 @@
 #!/bin/bash
 # Automated n8n Workflow Testing for CI/CD
-# Tests scraper workflows via n8n webhook API
+# Tests scraper workflows via n8n webhook API with proper authentication
 
 set -euo pipefail  # CRITICAL: -o pipefail ensures pipe failures are caught
 
@@ -19,6 +19,15 @@ N8N_USER="${N8N_USER:-admin}"
 N8N_PASSWORD="${N8N_PASSWORD}"
 WEBHOOK_PATH="${WEBHOOK_PATH:-/webhook-test/scrape}"
 TIMEOUT="${TEST_TIMEOUT:-30}"
+COOKIE_FILE="$(mktemp)"
+
+# Cleanup on exit
+trap "rm -f '$COOKIE_FILE'" EXIT
+
+if [ -z "$N8N_PASSWORD" ]; then
+  echo -e "${RED}❌ N8N_PASSWORD not set!${NC}"
+  exit 1
+fi
 
 # Test URLs
 TEST_URLS=(
@@ -37,9 +46,42 @@ RESULTS=()
 
 echo "📊 Configuration:"
 echo "   n8n URL: $N8N_URL"
+echo "   n8n User: $N8N_USER"
 echo "   Webhook: $WEBHOOK_PATH"
 echo "   Timeout: ${TIMEOUT}s"
 echo "   Test URLs: ${#TEST_URLS[@]}"
+echo ""
+
+# Check if n8n is accessible
+echo "🔍 Checking n8n availability..."
+if ! curl -sf "${N8N_URL}/healthz" > /dev/null 2>&1 && \
+   ! curl -sf "${N8N_URL}" > /dev/null 2>&1; then
+  echo -e "${RED}❌ n8n is not accessible at $N8N_URL${NC}"
+  echo "Please ensure n8n is running:"
+  echo "  docker-compose up -d n8n"
+  exit 1
+fi
+echo -e "${GREEN}✅ n8n is accessible${NC}"
+echo ""
+
+# LOGIN to get session cookie (for authenticated webhook requests)
+echo "🔐 Logging in to n8n..."
+LOGIN_RESPONSE=$(curl -s -c "$COOKIE_FILE" -X POST \
+  -H "Content-Type: application/json" \
+  "${N8N_URL}/rest/login" \
+  -d "{
+    \"email\": \"${N8N_USER}\",
+    \"password\": \"${N8N_PASSWORD}\"
+  }" \
+  2>&1)
+
+if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
+  echo -e "${GREEN}✅ Login successful, session cookie saved${NC}"
+else
+  echo -e "${YELLOW}⚠️  Login failed, proceeding without authentication${NC}"
+  echo "   (Webhook might work if publicly accessible)"
+  rm -f "$COOKIE_FILE"
+fi
 echo ""
 
 # Function to test URL
@@ -50,8 +92,12 @@ test_url() {
   TOTAL=$((TOTAL + 1))
   echo -n "[Test $TOTAL/${#TEST_URLS[@]}] Testing: $url ... "
   
+  # Build curl command with cookie if available
+  CURL_CMD="curl -s -X POST"
+  [ -f "$COOKIE_FILE" ] && CURL_CMD="$CURL_CMD -b $COOKIE_FILE"
+  
   # Execute scraper workflow via webhook
-  RESPONSE=$(curl -s -X POST \
+  RESPONSE=$($CURL_CMD \
     "${N8N_URL}${WEBHOOK_PATH}" \
     -H "Content-Type: application/json" \
     -d "{\"url\": \"$url\", \"options\": {\"timeout\": 10000}}" \
@@ -87,18 +133,6 @@ test_url() {
   
   sleep 2
 }
-
-# Check if n8n is accessible
-echo "🔍 Checking n8n availability..."
-if ! curl -sf "${N8N_URL}/healthz" > /dev/null 2>&1 && \
-   ! curl -sf "${N8N_URL}" > /dev/null 2>&1; then
-  echo -e "${RED}❌ n8n is not accessible at $N8N_URL${NC}"
-  echo "Please ensure n8n is running:"
-  echo "  docker-compose up -d n8n"
-  exit 1
-fi
-echo -e "${GREEN}✅ n8n is accessible${NC}"
-echo ""
 
 # Run tests
 echo "🧪 Running workflow tests..."
