@@ -239,12 +239,13 @@ jobs:
           exit 1
       
       - name: 📦 Import n8n workflows via API
+        env:
+          N8N_URL: "http://localhost:5678"
+          N8N_USER: ${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
+          WORKFLOWS_DIR: "workflows"
         run: |
           chmod +x scripts/import-n8n-workflows.sh
-          export N8N_URL="http://localhost:5678"
-          export N8N_USER="${{ secrets.N8N_USER_CI }}"
-          export N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}"
-          export WORKFLOWS_DIR="workflows"
           # OPTIMIZATION: stdout/stderr instead of file
           bash scripts/import-n8n-workflows.sh
           EXIT_CODE=$?
@@ -255,15 +256,16 @@ jobs:
       
       - name: 🧪 Test n8n workflows
         id: test
+        env:
+          N8N_URL: "http://localhost:5678"
+          N8N_USER: ${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
+          WEBHOOK_PATH: "/webhook-test/scrape"
+          TEST_TIMEOUT: "30"
+          REPORT_FILE: "${{ env.LOGS_DIR }}/workflow-results.json"
         run: |
           chmod +x scripts/test-n8n-workflows.sh
           mkdir -p ${{ env.LOGS_DIR }}
-          export N8N_URL="http://localhost:5678"
-          export N8N_USER="${{ secrets.N8N_USER_CI }}"
-          export N8N_PASSWORD="${{ secrets.N8N_PASSWORD_CI }}"
-          export WEBHOOK_PATH="/webhook-test/scrape"
-          export TEST_TIMEOUT="30"
-          export REPORT_FILE="${{ env.LOGS_DIR }}/workflow-results.json"
           # OPTIMIZATION: stdout/stderr instead of separate log
           bash scripts/test-n8n-workflows.sh
           EXIT_CODE=$?
