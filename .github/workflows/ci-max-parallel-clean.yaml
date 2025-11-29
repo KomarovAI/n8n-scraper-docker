@@ -1096,7 +1096,11 @@ jobs:
           echo "Errors extracted"
         continue-on-error: true
       
-      - name: 📊 Generate CTRF (FIXED: Check actual test results)
+      - name: 📊 Generate CTRF (FIXED: Use env: block for GitHub Actions variables)
+        env:
+          WORKFLOWS_PASSED: ${{ needs.n8n-workflow-tests.outputs.passed }}
+          WORKFLOWS_FAILED: ${{ needs.n8n-workflow-tests.outputs.failed }}
+          N8N_WORKFLOW_RESULT: ${{ needs.n8n-workflow-tests.result }}
         run: |
           PASSED=0
           FAILED=0
@@ -1119,12 +1123,7 @@ jobs:
           # ✅ Integration
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          # ❗ n8n Workflows - КРИТИЧНО: сначала присваиваем переменные
-          WORKFLOWS_PASSED="${{ needs.n8n-workflow-tests.outputs.passed }}"
-          WORKFLOWS_FAILED="${{ needs.n8n-workflow-tests.outputs.failed }}"
-          N8N_WORKFLOW_RESULT="${{ needs.n8n-workflow-tests.result }}"
-          
-          # ЗАТЕМ проверяем с использованием [[ ]]
+          # ❗ n8n Workflows - используем переменные из env:
           if [[ "$N8N_WORKFLOW_RESULT" == "success" ]] && \
              [[ "${WORKFLOWS_PASSED:-0}" -gt 0 ]] && \
              [[ "${WORKFLOWS_FAILED:-999}" -eq 0 ]]; then
@@ -1220,7 +1219,7 @@ jobs:
       - name: 📝 Generate diagnostic
         run: |
           cat > logs/diagnostic.md << EOF
-          # CI/CD Report (FIXED: Real Test Results)
+          # CI/CD Report (FIXED: env: block for variables)
           
           ## Results
           
