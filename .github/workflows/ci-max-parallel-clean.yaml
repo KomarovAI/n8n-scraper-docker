@@ -1096,11 +1096,7 @@ jobs:
           echo "Errors extracted"
         continue-on-error: true
       
-      - name: 📊 Generate CTRF (FIXED: Use env: block for GitHub Actions variables)
-        env:
-          WORKFLOWS_PASSED: ${{ needs.n8n-workflow-tests.outputs.passed }}
-          WORKFLOWS_FAILED: ${{ needs.n8n-workflow-tests.outputs.failed }}
-          N8N_WORKFLOW_RESULT: ${{ needs.n8n-workflow-tests.result }}
+      - name: 📊 Generate CTRF (FIXED: Check actual test results)
         run: |
           PASSED=0
           FAILED=0
@@ -1123,14 +1119,17 @@ jobs:
           # ✅ Integration
           [ "${{ needs.n8n-integration.result }}" == "success" ] && PASSED=$((PASSED + 1)) || FAILED=$((FAILED + 1))
           
-          # ❗ n8n Workflows - используем переменные из env:
-          if [[ "$N8N_WORKFLOW_RESULT" == "success" ]] && \
-             [[ "${WORKFLOWS_PASSED:-0}" -gt 0 ]] && \
-             [[ "${WORKFLOWS_FAILED:-999}" -eq 0 ]]; then
+          # ❗ n8n Workflows - КРИТИЧНО: проверяем passed/failed из outputs
+          WORKFLOWS_PASSED="${{ needs.n8n-workflow-tests.outputs.passed }}"
+          WORKFLOWS_FAILED="${{ needs.n8n-workflow-tests.outputs.failed }}"
+          
+          if [ "${{ needs.n8n-workflow-tests.result }}" == "success" ] && \
+             [ "${WORKFLOWS_PASSED:-0}" -gt 0 ] && \
+             [ "${WORKFLOWS_FAILED:-999}" -eq 0 ]; then
             PASSED=$((PASSED + 1))
           else
             FAILED=$((FAILED + 1))
-            echo "⚠️ n8n-workflow-tests: result=$N8N_WORKFLOW_RESULT, passed=$WORKFLOWS_PASSED, failed=$WORKFLOWS_FAILED"
+            echo "⚠️ n8n-workflow-tests: result=${{ needs.n8n-workflow-tests.result }}, passed=$WORKFLOWS_PASSED, failed=$WORKFLOWS_FAILED"
           fi
           
           # ✅ Master E2E
@@ -1219,7 +1218,7 @@ jobs:
       - name: 📝 Generate diagnostic
         run: |
           cat > logs/diagnostic.md << EOF
-          # CI/CD Report (FIXED: env: block for variables)
+          # CI/CD Report (FIXED: Real Test Results)
           
           ## Results
           
