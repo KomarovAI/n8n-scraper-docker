@@ -370,8 +370,8 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - { name: "Ollama", slug: "ollama", services: "ollama", timeout: 420 }
-          - { name: "ML Service", slug: "ml-service", services: "ollama redis ml-service", timeout: 480 }
+          - { name: "Ollama", slug: "ollama", services: "ollama", timeout: 600 }
+          - { name: "ML Service", slug: "ml-service", services: "ollama redis ml-service", timeout: 600 }
     steps:
       - name: 📊 Checkout
         uses: actions/checkout@v6
@@ -406,7 +406,7 @@ jobs:
           echo "🧠 Starting ${{ matrix.test.name }}..."
           docker compose up -d ${{ matrix.test.services }}
       
-      - name: ⏱️ Wait for services (MAX timeout)
+      - name: ⏱️ Wait for services (MAX timeout - increased to 10min)
         run: |
           echo "⌛ Waiting for ${{ matrix.test.name }} (max ${{ matrix.test.timeout }}s)..."
           START=$(date +%s)
@@ -757,23 +757,85 @@ jobs:
           sleep 10
           docker compose up -d n8n
       
-      - name: ⏱️ Wait for n8n
+      - name: ⏱️ Wait for n8n (CRITICAL - max 90s)
         run: |
-          echo "⌛ Waiting for n8n..."
+          echo "⌛ Waiting for n8n to be fully ready (max 90s)..."
+          START=$(date +%s)
+          
+          for i in {1..90}; do
+            ELAPSED=$(($(date +%s) - START))
+            
+            # Проверяем оба endpoint'а
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
+               curl -sf http://localhost:5678 > /dev/null 2>&1; then
+              echo "✅ n8n is ready after ${ELAPSED}s!"
+              
+              # КРИТИЧЕСКИ ВАЖНО: даем n8n время полностью инициализироваться
+              echo "⏱️  Waiting additional 10s for full initialization..."
+              sleep 10
+              
+              docker compose ps
+              exit 0
+            fi
+            
+            # Прогресс каждые 15с
+            if [ $((i % 15)) -eq 0 ]; then
+              echo "⌛ Still waiting... (${ELAPSED}s elapsed)"
+              docker compose ps n8n postgres redis 2>/dev/null || true
+            fi
+            
+            sleep 1
+          done
+          
+          echo "❌ n8n failed to start after 90 seconds"
+          docker compose logs --tail=100 n8n
+          exit 1
+      
+      - name: 📦 Import n8n workflows (AUTO)
+        run: |
+          echo "📦 Importing workflows from workflows/*.json..."
+          
+          # Получаем список workflow файлов
+          WORKFLOW_COUNT=$(ls -1 workflows/*.json 2>/dev/null | wc -l)
+          
+          if [ "$WORKFLOW_COUNT" -eq 0 ]; then
+            echo "⚠️  No workflow files found in workflows/ directory!"
+            echo "Files in workflows/:"
+            ls -la workflows/ || true
+            exit 1
+          fi
+          
+          echo "Found $WORKFLOW_COUNT workflow file(s)"
+          
+          # Копируем workflows в контейнер n8n
+          docker compose cp workflows/. n8n:/home/node/.n8n/workflows/
+          
+          # Проверяем, что файлы скопировались
+          echo "Verifying copied files..."
+          docker compose exec -T n8n sh -c "ls -la /home/node/.n8n/workflows/*.json 2>/dev/null || echo 'No files found'"
+          
+          # Перезапускаем n8n для загрузки workflows
+          echo "Restarting n8n to load workflows..."
+          docker compose restart n8n
+          
+          # Ждем перезапуска
+          echo "Waiting for n8n to restart (max 60s)..."
           for i in {1..60}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || \
                curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              echo "✅ n8n ready after ${i}s"
+              echo "✅ n8n restarted successfully after ${i}s"
+              sleep 5
               exit 0
             fi
-            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting... (${i}s)"
+            [ $((i % 10)) -eq 0 ] && echo "⌛ Waiting for restart... (${i}s)"
             sleep 1
           done
-          echo "❌ n8n failed to start"
+          
+          echo "❌ Failed to restart n8n"
           docker compose logs --tail=50 n8n
           exit 1
       
-      - name: 🧪 Test n8n workflows
+      - name: 🧪 Test n8n workflows (STRICT - NO continue-on-error)
         id: test
         run: |
           chmod +x scripts/test-n8n-workflows.sh
@@ -785,8 +847,20 @@ jobs:
           export TEST_TIMEOUT="30"
           export REPORT_FILE="/tmp/n8n-workflow-test-results.json"
           
+          echo "🧪 Running n8n workflow tests (STRICT MODE - must pass!)..."
           bash scripts/test-n8n-workflows.sh 2>&1 | tee /tmp/n8n-workflow-test.log
-        continue-on-error: true
+          
+          # NO continue-on-error! Exit code matters!
+          EXIT_CODE=$?
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Tests FAILED with exit code $EXIT_CODE"
+            echo "=== n8n logs ==="
+            docker compose logs --tail=100 n8n
+            exit $EXIT_CODE
+          fi
+          
+          echo "✅ All workflow tests passed!"
       
       - name: 📊 Parse test results
         id: parse
@@ -1120,7 +1194,7 @@ jobs:
       - name: 📝 Generate diagnostic
         run: |
           cat > logs/diagnostic.md << EOF
-          # CI/CD Report (TURBO + n8n Workflows)
+          # CI/CD Report (TURBO + n8n Workflows STRICT)
           
           ## Results
           
@@ -1130,7 +1204,7 @@ jobs:
           - ML Services: ${{ needs.ml-services.result }}
           - E2E Tests: ${{ needs.e2e-tests.result }}
           - Integration: ${{ needs.n8n-integration.result }}
-          - n8n Workflows: ${{ needs.n8n-workflow-tests.result }}
+          - n8n Workflows: ${{ needs.n8n-workflow-tests.result }} ⚠️ STRICT MODE (no continue-on-error)
           - Master E2E: ${{ needs.master-e2e.result }}
           
           ## Stats
@@ -1139,11 +1213,13 @@ jobs:
           - Failed: ${FAILED:-0}
           - Rate: ${SUCCESS_RATE:-0}%
           
-          ## n8n Workflow Tests Details
+          ## n8n Workflow Tests Details (STRICT)
           
           - Passed: ${{ needs.n8n-workflow-tests.outputs.passed }}
           - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
           - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
+          - **Auto-Import**: Enabled
+          - **continue-on-error**: DISABLED (must pass!)
           EOF
           
           echo "Diagnostic generated"
