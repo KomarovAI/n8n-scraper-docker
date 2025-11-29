@@ -61,16 +61,46 @@ AUTH_HEADER="Authorization: Basic ${BASIC_AUTH}"
 echo -e "${GREEN}✅ Basic Auth header created${NC}"
 echo ""
 
-# Check n8n version and setup status
-echo "🔍 Checking n8n setup status..."
-SETUP_STATUS=$(curl -s "${N8N_URL}/rest/owner/setup-status" 2>&1)
+# Test if current credentials work
+echo "🔍 Testing credentials..."
+LOGIN_TEST=$(curl -s -X POST \
+  -H "Content-Type: application/json" \
+  "${N8N_URL}/rest/login" \
+  -d "{
+    \"email\": \"${N8N_USER}\",
+    \"password\": \"${N8N_PASSWORD}\"
+  }" \
+  2>&1)
 
-if echo "$SETUP_STATUS" | grep -qi '"needsSetup".*true'; then
-  echo -e "${YELLOW}⚠️  n8n owner not set up yet${NC}"
-  echo ""
-  echo "🔧 Creating owner user..."
+if echo "$LOGIN_TEST" | grep -qi '"id"'; then
+  echo -e "${GREEN}✅ Credentials valid${NC}"
+  NEED_RESET=false
+elif echo "$LOGIN_TEST" | grep -qi 'unauthorized\|wrong.*password\|invalid.*credentials'; then
+  echo -e "${YELLOW}⚠️  Credentials mismatch detected!${NC}"
+  echo "   Old owner exists with different password"
+  NEED_RESET=true
+else
+  # Owner doesn't exist yet
+  echo -e "${YELLOW}⚠️  No owner found${NC}"
+  NEED_RESET=true
+fi
+echo ""
+
+# Force reset owner if credentials don't match
+if [ "$NEED_RESET" = true ]; then
+  echo "🔧 Resetting n8n owner..."
   
-  # Setup owner (uses Basic Auth)
+  # Delete all users from postgres (force clean)
+  echo "🗑️  Removing old owner from database..."
+  docker exec n8n-postgres psql -U n8n -d n8n -c "DELETE FROM \"user\";" 2>/dev/null || true
+  echo -e "${GREEN}✅ Old owner removed${NC}"
+  
+  # Wait for n8n to detect no owner
+  sleep 2
+  
+  echo "🔧 Creating new owner with current credentials..."
+  
+  # Setup owner
   SETUP_RESPONSE=$(curl -s -X POST \
     -H "${AUTH_HEADER}" \
     -H "Content-Type: application/json" \
@@ -90,8 +120,6 @@ if echo "$SETUP_STATUS" | grep -qi '"needsSetup".*true'; then
     echo "Response: $SETUP_RESPONSE"
     exit 1
   fi
-else
-  echo -e "${GREEN}✅ n8n owner already set up${NC}"
 fi
 echo ""
 
