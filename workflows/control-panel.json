@@ -1,5 +1,6 @@
 {
   "name": "Scraper Control Panel",
+  "active": false,
   "nodes": [
     {
       "name": "Admin Webhook",
