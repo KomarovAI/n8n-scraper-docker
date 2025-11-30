@@ -20,6 +20,8 @@ env:
   COMPOSE_DOCKER_CLI_BUILD: 1
   # Centralized logs directory
   LOGS_DIR: /tmp/validation-logs
+  # ✅ BEST PRACTICE: Unique project name per run (prevents container conflicts)
+  COMPOSE_PROJECT_NAME: n8n-ci-${{ github.run_id }}
 
 jobs:
   essential-tests:
@@ -35,6 +37,21 @@ jobs:
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
+      
+      # ✅ BEST PRACTICE: Preflight cleanup (prevents container name conflicts)
+      - name: 🧹 Preflight Docker cleanup
+        run: |
+          echo "🔍 Cleaning up leftover containers from previous runs..."
+          # Stop and remove containers matching project prefix
+          docker ps -aq --filter "name=n8n-" | xargs -r docker rm -f || true
+          
+          # Remove volumes for this project
+          docker volume ls -q --filter "name=n8n-scraper-docker" | xargs -r docker volume rm || true
+          
+          # Prune dangling networks
+          docker network prune -f || true
+          
+          echo "✅ Preflight cleanup complete"
       
       - name: ⏱️ Start timer
         id: timer
@@ -119,12 +136,13 @@ jobs:
           START_TIME=${{ steps.timer.outputs.start_time }}
           DURATION=$((END_TIME - START_TIME))
           
+          # ✅ FIXED: Renamed 'end' to 'end_time' (jq reserved keyword)
           jq -n \
             --arg job "essential-${{ matrix.test.slug }}" \
             --arg test_name "${{ matrix.test.name }}" \
             --arg status "${{ job.status }}" \
             --argjson start "$START_TIME" \
-            --argjson end "$END_TIME" \
+            --argjson end_time "$END_TIME" \
             --argjson duration "$DURATION" \
             --arg exit_code "${{ steps.test.outcome }}" \
             '{
@@ -132,7 +150,7 @@ jobs:
               test_name: $test_name,
               status: $status,
               start_time: $start,
-              end_time: $end,
+              end_time: $end_time,
               duration_seconds: $duration,
               exit_code: $exit_code
             }' > ${{ env.LOGS_DIR }}/essential-${{ matrix.test.slug }}.json
@@ -160,12 +178,16 @@ jobs:
           retention-days: 3
           compression-level: 0
       
+      # ✅ BEST PRACTICE: Cleanup with timeout
       - name: 🧹 Cleanup
         if: always()
+        timeout-minutes: 5
         run: |
+          echo "Starting cleanup at $(date)"
           [ ! -f .env ] && touch .env
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans || true
           rm -rf ${{ env.LOGS_DIR }}
+          echo "Cleanup completed at $(date)"
 
   n8n-workflow-tests:
     name: n8n Workflow Tests
@@ -179,6 +201,15 @@ jobs:
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
+      
+      # ✅ BEST PRACTICE: Preflight cleanup
+      - name: 🧹 Preflight Docker cleanup
+        run: |
+          echo "🔍 Cleaning up leftover containers from previous runs..."
+          docker ps -aq --filter "name=n8n-" | xargs -r docker rm -f || true
+          docker volume ls -q --filter "name=n8n-scraper-docker" | xargs -r docker volume rm || true
+          docker network prune -f || true
+          echo "✅ Preflight cleanup complete"
       
       - name: ⏱️ Start timer
         id: timer
@@ -326,11 +357,12 @@ jobs:
           echo "failed=${{ steps.parse.outputs.FAILED }}" >> $GITHUB_OUTPUT
           echo "success_rate=${{ steps.parse.outputs.SUCCESS_RATE }}" >> $GITHUB_OUTPUT
           
+          # ✅ FIXED: Renamed 'end' to 'end_time' (jq reserved keyword)
           jq -n \
             --arg job "n8n-workflows" \
             --arg status "${{ job.status }}" \
             --argjson start "$START_TIME" \
-            --argjson end "$END_TIME" \
+            --argjson end_time "$END_TIME" \
             --argjson duration "$DURATION" \
             --arg exit_code "${{ steps.test.outcome }}" \
             --argjson passed "${{ steps.parse.outputs.PASSED }}" \
@@ -340,7 +372,7 @@ jobs:
               job: $job,
               status: $status,
               start_time: $start,
-              end_time: $end,
+              end_time: $end_time,
               duration_seconds: $duration,
               exit_code: $exit_code,
               passed: $passed,
@@ -371,12 +403,16 @@ jobs:
           retention-days: 3
           compression-level: 0
       
+      # ✅ BEST PRACTICE: Cleanup with timeout
       - name: 🧹 Cleanup
         if: always()
+        timeout-minutes: 5
         run: |
+          echo "Starting cleanup at $(date)"
           [ ! -f .env ] && touch .env
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans || true
           rm -rf ${{ env.LOGS_DIR }}
+          echo "Cleanup completed at $(date)"
 
   summary:
     name: n8n Validation Summary
