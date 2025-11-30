@@ -177,7 +177,7 @@ jobs:
   n8n-workflow-tests:
     name: n8n Workflow Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15  # Increased from 10 to 15 for webhook initialization
     outputs:
       duration: ${{ steps.save.outputs.duration }}
       passed: ${{ steps.parse.outputs.PASSED }}
@@ -240,21 +240,35 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
           exit 1
       
-      - name: 📦 Import n8n workflows via API
+      - name: 📦 Initialize workflows with webhook reactivation
         env:
           N8N_URL: "http://localhost:5678"
           N8N_USER: ${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
           WORKFLOWS_DIR: "workflows"
         run: |
-          chmod +x scripts/import-n8n-workflows.sh
-          # OPTIMIZATION: stdout/stderr instead of file
-          bash scripts/import-n8n-workflows.sh
+          chmod +x scripts/init-workflows.sh
+          bash scripts/init-workflows.sh
           EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
-            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
+            echo "❌ Workflow initialization failed"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n
             exit $EXIT_CODE
           fi
+        timeout-minutes: 5
+      
+      - name: 🔍 Verify webhook status
+        env:
+          N8N_URL: "http://localhost:5678"
+          N8N_CONTAINER: "n8n-app"
+          DB_CONTAINER: "postgres"
+          DB_NAME: "n8n"
+          DB_USER: "n8n"
+        run: |
+          chmod +x scripts/debug-webhook-status.sh
+          bash scripts/debug-webhook-status.sh
+        continue-on-error: true
+        timeout-minutes: 2
       
       - name: 🧪 Test n8n workflows
         id: test
@@ -262,19 +276,20 @@ jobs:
           N8N_URL: "http://localhost:5678"
           N8N_USER: ${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
-          WEBHOOK_PATH: "/webhook/scrape"  # FIXED: Changed from /webhook-test/scrape to /webhook/scrape
+          WEBHOOK_PATH: "/webhook/scrape"
           TEST_TIMEOUT: "30"
           REPORT_FILE: "${{ env.LOGS_DIR }}/workflow-results.json"
         run: |
           chmod +x scripts/test-n8n-workflows.sh
           mkdir -p ${{ env.LOGS_DIR }}
-          # OPTIMIZATION: stdout/stderr instead of separate log
           bash scripts/test-n8n-workflows.sh
           EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
-            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
+            echo "❌ Workflow tests failed"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n
             exit $EXIT_CODE
           fi
+        timeout-minutes: 8
       
       - name: 📊 Parse test results
         id: parse
@@ -434,6 +449,11 @@ jobs:
           - Previous size: ~830 KB
           - Reduction: 75-99%
           - Files: 2 (vs 12 previously)
+          
+          **Webhook Fix Applied**:
+          - Force reactivation after import (n8n v1.x issue)
+          - Increased test timeout: 150s (30 attempts × 5s)
+          - Enhanced validation: JSON structure + response length
           EOF
           
           # Print for GitHub Actions UI
