@@ -9,6 +9,7 @@ Optimizations:
 4. Batch analysis for similar domains (5x reduction)
 5. Domain-level strategy inheritance
 6. Rate limit tracking with auto-fallback
+7. **GRACEFUL DEGRADATION** - works without ML models
 
 Combined: ~100x API call reduction
 """
@@ -23,8 +24,13 @@ import aiohttp
 from loguru import logger
 import redis.asyncio as redis
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
-import joblib
+try:
+    from sklearn.ensemble import GradientBoostingClassifier
+    import joblib
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    logger.warning("scikit-learn not available, ML features disabled")
+    SKLEARN_AVAILABLE = False
 from urllib.parse import urlparse
 import re
 
@@ -38,17 +44,33 @@ class OptimizedAIRouter:
     2. Sklearn classifier (25% of sites) → confidence > 0.7
     3. Gemini Flash (5% of sites) → only complex/uncertain cases
     4. Redis cache (24h) → same domain uses cached result
+    
+    GRACEFUL DEGRADATION:
+    - Works WITHOUT sklearn classifier (rule-based only)
+    - Works WITHOUT Gemini API (rule-based + sklearn fallback)
+    - Never crashes due to missing models/dependencies
     """
 
     def __init__(self):
         self.gemini_api_key = os.getenv('GEMINI_API_KEY', '')
         self.redis_client = None
-        self.classifier = self._load_classifier()
+        
+        # Try to load classifier (graceful degradation if fails)
+        try:
+            self.classifier = self._load_classifier()
+            logger.info("✅ ML classifier loaded successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ ML classifier not loaded: {e}")
+            logger.warning("⚠️ ML predictions disabled, using rule-based only")
+            self.classifier = None
         
         # Rate limiting
         self.gemini_daily_limit = 1500
         self.gemini_requests_today = 0
         self.gemini_enabled = bool(self.gemini_api_key)
+        
+        if not self.gemini_enabled:
+            logger.warning("⚠️ Gemini API key not set, AI predictions disabled")
         
         # Statistics
         self.stats = {
@@ -62,19 +84,32 @@ class OptimizedAIRouter:
     async def init_redis(self):
         """Initialize Redis connection."""
         if not self.redis_client:
-            self.redis_client = await redis.from_url(
-                f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}",
-                password=os.getenv('REDIS_PASSWORD', ''),
-                decode_responses=True
-            )
+            try:
+                self.redis_client = await redis.from_url(
+                    f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}",
+                    password=os.getenv('REDIS_PASSWORD', ''),
+                    decode_responses=True
+                )
+                logger.info("✅ Redis connection established")
+            except Exception as e:
+                logger.warning(f"⚠️ Redis connection failed: {e}")
+                logger.warning("⚠️ Caching disabled, system continues without Redis")
+                self.redis_client = None
 
     def _load_classifier(self):
         """Load pre-trained sklearn classifier."""
+        if not SKLEARN_AVAILABLE:
+            raise ImportError("scikit-learn not installed")
+            
         try:
-            return joblib.load('models/scraping_classifier.pkl')
-        except:
-            # Create simple classifier if none exists
-            clf = GradientBoostingClassifier(n_estimators=50, max_depth=3)
+            classifier = joblib.load('models/scraping_classifier.pkl')
+            logger.info("✅ Loaded existing classifier from models/scraping_classifier.pkl")
+            return classifier
+        except FileNotFoundError:
+            logger.warning("⚠️ models/scraping_classifier.pkl not found")
+            logger.warning("⚠️ Creating dummy classifier (training data required for production)")
+            # Create simple fallback classifier
+            clf = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=42)
             X = np.random.rand(100, 15)
             y = np.random.choice(['http', 'stealth', 'playwright'], 100)
             clf.fit(X, y)
@@ -92,25 +127,30 @@ class OptimizedAIRouter:
     async def _get_cached_strategy(self, url: str) -> Optional[Dict]:
         """Get cached strategy from Redis."""
         if not self.redis_client:
-            await self.init_redis()
-        
+            return None
+            
         cache_key = self._generate_cache_key(url)
-        cached = await self.redis_client.get(cache_key)
-        
-        if cached:
-            self.stats['cached'] += 1
-            logger.info(f"Cache HIT for {self._extract_domain(url)}")
-            return json.loads(cached)
+        try:
+            cached = await self.redis_client.get(cache_key)
+            if cached:
+                self.stats['cached'] += 1
+                logger.info(f"Cache HIT for {self._extract_domain(url)}")
+                return json.loads(cached)
+        except Exception as e:
+            logger.error(f"Redis get failed: {e}")
         return None
 
     async def _set_cached_strategy(self, url: str, strategy: Dict, ttl: int = 86400):
         """Cache strategy in Redis (default 24h)."""
         if not self.redis_client:
-            await self.init_redis()
-        
+            return
+            
         cache_key = self._generate_cache_key(url)
-        await self.redis_client.setex(cache_key, ttl, json.dumps(strategy))
-        logger.info(f"Cached strategy for {self._extract_domain(url)} (TTL: {ttl}s)")
+        try:
+            await self.redis_client.setex(cache_key, ttl, json.dumps(strategy))
+            logger.info(f"Cached strategy for {self._extract_domain(url)} (TTL: {ttl}s)")
+        except Exception as e:
+            logger.error(f"Redis set failed: {e}")
 
     def _rule_based_filter(self, url: str, html: Optional[str]) -> Optional[Dict]:
         """
@@ -193,36 +233,67 @@ class OptimizedAIRouter:
         return np.array(features).reshape(1, -1)
 
     async def _sklearn_predict(self, url: str, html: Optional[str], anti_bot: Dict) -> Dict:
-        """Predict using sklearn classifier."""
-        features = self._extract_features(url, html, anti_bot)
-        method = self.classifier.predict(features)[0]
-        confidence = float(self.classifier.predict_proba(features).max())
+        """
+        Predict using sklearn classifier.
+        GRACEFUL: Returns fallback if classifier not available.
+        """
+        if not self.classifier:
+            logger.warning("Sklearn classifier not available, using fallback")
+            # Fallback to simple rule-based decision
+            return self._rule_based_filter(url, html) or {
+                "recommended_method": "http",
+                "confidence": 0.60,
+                "reasoning": "Fallback decision (ML unavailable)",
+                "anti_bot_detected": anti_bot.get('protections', []),
+                "bypass_strategies": [],
+                "source": "fallback"
+            }
         
-        self.stats['sklearn'] += 1
-        
-        return {
-            "recommended_method": method,
-            "confidence": confidence,
-            "reasoning": "ML classification based on features",
-            "anti_bot_detected": anti_bot.get('protections', []),
-            "bypass_strategies": self._get_bypass_strategies(anti_bot),
-            "source": "sklearn"
-        }
+        try:
+            features = self._extract_features(url, html, anti_bot)
+            method = self.classifier.predict(features)[0]
+            confidence = float(self.classifier.predict_proba(features).max())
+            
+            self.stats['sklearn'] += 1
+            
+            return {
+                "recommended_method": method,
+                "confidence": confidence,
+                "reasoning": "ML classification based on features",
+                "anti_bot_detected": anti_bot.get('protections', []),
+                "bypass_strategies": self._get_bypass_strategies(anti_bot),
+                "source": "sklearn"
+            }
+        except Exception as e:
+            logger.error(f"Sklearn prediction failed: {e}")
+            # Graceful fallback
+            return self._rule_based_filter(url, html) or {
+                "recommended_method": "http",
+                "confidence": 0.60,
+                "reasoning": f"ML error fallback: {str(e)[:50]}",
+                "anti_bot_detected": [],
+                "bypass_strategies": [],
+                "source": "error_fallback"
+            }
 
     async def _gemini_predict(self, url: str, html: Optional[str]) -> Dict:
         """
         Predict using Gemini 2.5 Flash (only for complex cases).
+        GRACEFUL: Falls back to sklearn if Gemini fails.
         """
         if not self.gemini_enabled:
-            logger.warning("Gemini API key not set")
+            logger.warning("Gemini API key not set, using sklearn fallback")
             return await self._sklearn_predict(url, html, {"protections": []})
         
         # Check daily limit
         today_key = f"gemini:requests:{datetime.now().strftime('%Y-%m-%d')}"
         if self.redis_client:
-            self.gemini_requests_today = int(await self.redis_client.get(today_key) or 0)
+            try:
+                self.gemini_requests_today = int(await self.redis_client.get(today_key) or 0)
+            except:
+                pass
         
-        if self.gemini_requests_today >= self.gemini_daily_limit * 0.8:  # 80% threshold
+        if self.gemini_requests_today >= self.gemini_daily_limit * 0.8:
             logger.warning(f"Gemini daily limit approaching: {self.gemini_requests_today}/{self.gemini_daily_limit}")
             return await self._sklearn_predict(url, html, {"protections": []})
         
@@ -271,8 +342,11 @@ JSON format:
                             # Increment counter
                             self.stats['gemini'] += 1
                             if self.redis_client:
-                                await self.redis_client.incr(today_key)
-                                await self.redis_client.expire(today_key, 86400)
+                                try:
+                                    await self.redis_client.incr(today_key)
+                                    await self.redis_client.expire(today_key, 86400)
+                                except:
+                                    pass
                             
                             logger.info(f"Gemini analysis for {self._extract_domain(url)}")
                             return result
@@ -297,46 +371,6 @@ JSON format:
             strategies.extend(['ja3_randomization', 'canvas_fingerprint_random'])
         
         return strategies if strategies else ['standard_headers']
-
-    async def predict_method(self, url: str, html: Optional[str] = None) -> Dict:
-        """
-        Main prediction with ALL optimizations.
-        
-        Decision tree:
-        1. Check Redis cache (24h) → ~90% hit rate after warmup
-        2. Rule-based filter → handles ~70% of cache misses
-        3. Sklearn classifier → handles ~25% with confidence > 0.7
-        4. Gemini Flash → only ~5% complex/uncertain cases
-        """
-        self.stats['total'] += 1
-        
-        # OPTIMIZATION 1: Redis Cache (10-50x reduction)
-        cached = await self._get_cached_strategy(url)
-        if cached:
-            cached['cached'] = True
-            return cached
-        
-        # OPTIMIZATION 2: Rule-Based Filter (3x reduction)
-        rule_result = self._rule_based_filter(url, html)
-        if rule_result:
-            await self._set_cached_strategy(url, rule_result, ttl=86400)  # 24h
-            return rule_result
-        
-        # Detect anti-bot (lightweight rule-based)
-        anti_bot = self._rule_based_anti_bot_detection(html) if html else {"protections": []}
-        
-        # OPTIMIZATION 3: Sklearn Primary (20x reduction)
-        sklearn_result = await self._sklearn_predict(url, html, anti_bot)
-        
-        # Only call Gemini if sklearn confidence is low
-        if sklearn_result['confidence'] > 0.70:
-            await self._set_cached_strategy(url, sklearn_result, ttl=86400)
-            return sklearn_result
-        
-        # OPTIMIZATION 4: Gemini Flash (only for uncertain cases)
-        gemini_result = await self._gemini_predict(url, html)
-        await self._set_cached_strategy(url, gemini_result, ttl=86400)
-        return gemini_result
 
     def _rule_based_anti_bot_detection(self, html: str) -> Dict:
         """Fast rule-based anti-bot detection (no API calls)."""
@@ -364,154 +398,47 @@ JSON format:
             "confidence": 0.85 if protections else 0.95
         }
 
-    async def _get_cached_strategy(self, url: str) -> Optional[Dict]:
-        """Get cached strategy from Redis."""
-        if not self.redis_client:
-            await self.init_redis()
+    async def predict_method(self, url: str, html: Optional[str] = None) -> Dict:
+        """
+        Main prediction with ALL optimizations + GRACEFUL DEGRADATION.
         
-        cache_key = self._generate_cache_key(url)
-        try:
-            cached = await self.redis_client.get(cache_key)
-            if cached:
-                self.stats['cached'] += 1
-                return json.loads(cached)
-        except Exception as e:
-            logger.error(f"Redis get failed: {e}")
-        return None
-
-    async def _set_cached_strategy(self, url: str, strategy: Dict, ttl: int):
-        """Cache strategy in Redis."""
-        if not self.redis_client:
-            await self.init_redis()
+        Decision tree:
+        1. Check Redis cache (24h) → ~90% hit rate after warmup
+        2. Rule-based filter → handles ~70% of cache misses
+        3. Sklearn classifier → handles ~25% with confidence > 0.7
+        4. Gemini Flash → only ~5% complex/uncertain cases
         
-        cache_key = self._generate_cache_key(url)
-        try:
-            await self.redis_client.setex(cache_key, ttl, json.dumps(strategy))
-        except Exception as e:
-            logger.error(f"Redis set failed: {e}")
-
-    def _rule_based_filter(self, url: str, html: Optional[str]) -> Optional[Dict]:
-        """Rule-based pre-filter."""
-        if not html:
-            return None
+        GRACEFUL: Never crashes, always returns a valid strategy.
+        """
+        self.stats['total'] += 1
         
-        html_lower = html.lower()
-        domain = self._extract_domain(url)
+        # OPTIMIZATION 1: Redis Cache (10-50x reduction)
+        cached = await self._get_cached_strategy(url)
+        if cached:
+            cached['cached'] = True
+            return cached
         
-        # Known simple domains
-        simple_domains = ['wikipedia.org', 'github.com', 'stackoverflow.com', 'reddit.com']
-        if any(x in domain for x in simple_domains):
-            self.stats['rule_based'] += 1
-            return {
-                "recommended_method": "http",
-                "confidence": 0.90,
-                "reasoning": "Known simple domain (whitelist)",
-                "anti_bot_detected": [],
-                "bypass_strategies": [],
-                "source": "rule_based"
-            }
+        # OPTIMIZATION 2: Rule-Based Filter (3x reduction)
+        rule_result = self._rule_based_filter(url, html)
+        if rule_result:
+            await self._set_cached_strategy(url, rule_result, ttl=86400)
+            return rule_result
         
-        # Check for protections
-        has_protection = any(x in html_lower for x in ['cloudflare', 'datadome', 'recaptcha', 'hcaptcha'])
-        has_js_heavy = html_lower.count('<script') > 10
+        # Detect anti-bot (lightweight rule-based)
+        anti_bot = self._rule_based_anti_bot_detection(html) if html else {"protections": []}
         
-        # Simple static
-        if not has_protection and not has_js_heavy:
-            self.stats['rule_based'] += 1
-            return {
-                "recommended_method": "http",
-                "confidence": 0.85,
-                "reasoning": "Static HTML, no protections",
-                "anti_bot_detected": [],
-                "bypass_strategies": [],
-                "source": "rule_based"
-            }
+        # OPTIMIZATION 3: Sklearn Primary (20x reduction)
+        sklearn_result = await self._sklearn_predict(url, html, anti_bot)
         
-        # JS-heavy without protection
-        if has_js_heavy and not has_protection:
-            self.stats['rule_based'] += 1
-            return {
-                "recommended_method": "playwright",
-                "confidence": 0.80,
-                "reasoning": "JS-heavy, no anti-bot",
-                "anti_bot_detected": [],
-                "bypass_strategies": ["enable_javascript"],
-                "source": "rule_based"
-            }
+        # Only call Gemini if sklearn confidence is low
+        if sklearn_result.get('confidence', 0) > 0.70:
+            await self._set_cached_strategy(url, sklearn_result, ttl=86400)
+            return sklearn_result
         
-        return None  # Needs ML/AI
-
-    async def _sklearn_predict(self, url: str, html: Optional[str], anti_bot: Dict) -> Dict:
-        """Predict using sklearn."""
-        features = self._extract_features(url, html, anti_bot)
-        method = self.classifier.predict(features)[0]
-        confidence = float(self.classifier.predict_proba(features).max())
-        
-        self.stats['sklearn'] += 1
-        
-        return {
-            "recommended_method": method,
-            "confidence": confidence,
-            "reasoning": "ML classification",
-            "anti_bot_detected": anti_bot.get('protections', []),
-            "bypass_strategies": self._get_bypass_strategies(anti_bot),
-            "source": "sklearn"
-        }
-
-    async def _gemini_predict(self, url: str, html: Optional[str]) -> Dict:
-        """Gemini Flash prediction (minimal usage)."""
-        # Truncate HTML to save tokens
-        html_snippet = html[:1000] if html else "Not provided"
-        
-        prompt = f"""Analyze URL for scraping. Return ONLY JSON.
-
-URL: {url}
-HTML: {html_snippet}
-
-Methods: http, playwright, stealth, tor, proxy
-
-JSON:
-{{
-  "recommended_method": "name",
-  "confidence": 0.0-1.0,
-  "reasoning": "brief",
-  "anti_bot_detected": [],
-  "bypass_strategies": []
-}}"""
-
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={self.gemini_api_key}"
-        
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(
-                    api_url,
-                    json={
-                        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400}
-                    },
-                    timeout=aiohttp.ClientTimeout(total=8)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        text = data['candidates'][0]['content']['parts'][0]['text']
-                        
-                        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-                        if json_match:
-                            result = json.loads(json_match.group())
-                            result['source'] = 'gemini'
-                            
-                            self.stats['gemini'] += 1
-                            if self.redis_client:
-                                today_key = f"gemini:requests:{datetime.now().strftime('%Y-%m-%d')}"
-                                await self.redis_client.incr(today_key)
-                                await self.redis_client.expire(today_key, 86400)
-                            
-                            return result
-            except Exception as e:
-                logger.error(f"Gemini failed: {e}")
-        
-        # Fallback to sklearn
-        return await self._sklearn_predict(url, html, {"protections": []})
+        # OPTIMIZATION 4: Gemini Flash (only for uncertain cases)
+        gemini_result = await self._gemini_predict(url, html)
+        await self._set_cached_strategy(url, gemini_result, ttl=86400)
+        return gemini_result
 
     def get_statistics(self) -> Dict:
         """Get usage statistics."""
@@ -525,7 +452,10 @@ JSON:
                 "gemini": f"{self.stats['gemini']/total*100:.1f}%"
             },
             "api_calls_saved": self.stats['total'] - self.stats['gemini'],
-            "reduction_factor": f"{self.stats['total']/max(self.stats['gemini'], 1):.1f}x"
+            "reduction_factor": f"{self.stats['total']/max(self.stats['gemini'], 1):.1f}x",
+            "ml_available": self.classifier is not None,
+            "gemini_available": self.gemini_enabled,
+            "redis_available": self.redis_client is not None
         }
 
 
@@ -555,7 +485,10 @@ if __name__ == "__main__":
         return {
             "status": "ok",
             "models": "gemini-2.0-flash + sklearn + rule-based",
-            "optimizations": ["caching", "rule-filter", "sklearn-primary", "rate-limiting"]
+            "optimizations": ["caching", "rule-filter", "sklearn-primary", "rate-limiting"],
+            "graceful_degradation": "enabled",
+            "ml_available": router.classifier is not None,
+            "gemini_available": router.gemini_enabled
         }
     
     import uvicorn
