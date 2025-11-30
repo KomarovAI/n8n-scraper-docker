@@ -98,20 +98,37 @@ jobs:
           sleep 12
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d ${{ matrix.test.services }}
       
-      - name: ⏳ Wait for n8n
+      # ✅ IMPROVED: Two-stage wait with /healthz and /healthz/readiness
+      - name: ⏳ Wait for n8n full readiness
         run: |
-          START=$(date +%s)
+          echo "⏳ Stage 1: Waiting for n8n process to start (/healthz)..."
           for i in {1..90}; do
-            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
-              exit 0
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+              echo "✅ n8n process is running"
+              break
             fi
+            [ $i -eq 90 ] && echo "❌ n8n healthcheck timeout" && exit 1
             [ $((i % 10)) -eq 0 ] && docker compose -f docker-compose.yml -f docker-compose.ci.yml ps n8n postgres redis 2>/dev/null || true
             sleep 1
           done
+          
+          echo "⏳ Stage 2: Waiting for DB connection + migrations (/healthz/readiness)..."
+          for i in {1..60}; do
+            READINESS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz/readiness)
+            if [ "$READINESS_CODE" == "200" ]; then
+              echo "✅ n8n is fully ready (DB connected + migrated)"
+              break
+            fi
+            [ $i -eq 60 ] && echo "❌ n8n readiness timeout" && docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n && exit 1
+            [ $((i % 10)) -eq 0 ] && echo "  Readiness check: HTTP $READINESS_CODE (attempt $i/60)"
+            sleep 2
+          done
+          
+          echo "⏳ Stage 3: Additional 10s buffer for API endpoint initialization..."
+          sleep 10
+          
+          echo "✅ n8n is ready for API calls"
           docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
-          exit 1
       
       - name: 📊 Start monitoring stack
         if: matrix.test.monitoring != ''
@@ -243,20 +260,37 @@ jobs:
           sleep 12
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d n8n
       
-      - name: ⏳ Wait for n8n
+      # ✅ IMPROVED: Two-stage wait with /healthz and /healthz/readiness
+      - name: ⏳ Wait for n8n full readiness
         run: |
-          START=$(date +%s)
+          echo "⏳ Stage 1: Waiting for n8n process to start (/healthz)..."
           for i in {1..90}; do
-            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1 || curl -sf http://localhost:5678 > /dev/null 2>&1; then
-              sleep 5
-              docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
-              exit 0
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+              echo "✅ n8n process is running"
+              break
             fi
+            [ $i -eq 90 ] && echo "❌ n8n healthcheck timeout" && exit 1
             [ $((i % 15)) -eq 0 ] && docker compose -f docker-compose.yml -f docker-compose.ci.yml ps n8n postgres redis 2>/dev/null || true
             sleep 1
           done
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
-          exit 1
+          
+          echo "⏳ Stage 2: Waiting for DB connection + migrations (/healthz/readiness)..."
+          for i in {1..60}; do
+            READINESS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz/readiness)
+            if [ "$READINESS_CODE" == "200" ]; then
+              echo "✅ n8n is fully ready (DB connected + migrated)"
+              break
+            fi
+            [ $i -eq 60 ] && echo "❌ n8n readiness timeout" && docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n && exit 1
+            [ $((i % 10)) -eq 0 ] && echo "  Readiness check: HTTP $READINESS_CODE (attempt $i/60)"
+            sleep 2
+          done
+          
+          echo "⏳ Stage 3: Additional 10s buffer for API endpoint initialization..."
+          sleep 10
+          
+          echo "✅ n8n is ready for API calls"
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
       
       - name: 🔧 Setup n8n owner (Automated)
         env:
