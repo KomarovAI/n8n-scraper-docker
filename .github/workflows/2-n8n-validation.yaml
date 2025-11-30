@@ -61,9 +61,8 @@ jobs:
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           
-          # n8n Authentication
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          # n8n API Authentication (Official Method)
+          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
           
           # Tor Control
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
@@ -210,8 +209,7 @@ jobs:
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
@@ -240,15 +238,14 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
           exit 1
       
-      - name: 📦 Initialize workflows with webhook reactivation
+      - name: 📦 Initialize workflows with N8N API Key (Official Method)
         env:
           N8N_URL: "http://localhost:5678"
-          N8N_USER: ${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
           WORKFLOWS_DIR: "workflows"
         run: |
-          chmod +x scripts/init-workflows.sh
-          bash scripts/init-workflows.sh
+          chmod +x scripts/init-workflows-api-key.sh
+          bash scripts/init-workflows-api-key.sh
           EXIT_CODE=$?
           if [ $EXIT_CODE -ne 0 ]; then
             echo "❌ Workflow initialization failed"
@@ -274,8 +271,8 @@ jobs:
         id: test
         env:
           N8N_URL: "http://localhost:5678"
-          N8N_USER: ${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
+          N8N_USER: "" # Not needed with API Key
+          N8N_PASSWORD: "" # Not needed with API Key
           WEBHOOK_PATH: "/webhook/scrape"
           TEST_TIMEOUT: "30"
           REPORT_FILE: "${{ env.LOGS_DIR }}/workflow-results.json"
@@ -444,16 +441,14 @@ jobs:
           
           ---
           
-          **Optimization Stats**:
-          - Artifact size: ~10 KB (success) or ~210 KB (with failure logs)
-          - Previous size: ~830 KB
-          - Reduction: 75-99%
-          - Files: 2 (vs 12 previously)
+          **✅ IMPROVEMENTS APPLIED**:
+          - Switched from cookie auth to N8N API Key (official method)
+          - Stateless authentication (no session expiry)
+          - Single unified script for import + reactivation
+          - Simpler error handling
           
-          **Webhook Fix Applied**:
-          - Force reactivation after import (n8n v1.x issue)
-          - Increased test timeout: 150s (30 attempts × 5s)
-          - Enhanced validation: JSON structure + response length
+          **Authentication Method**: X-N8N-API-KEY header
+          **Documentation**: https://docs.n8n.io/api/authentication/
           EOF
           
           # Print for GitHub Actions UI
