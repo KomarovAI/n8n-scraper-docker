@@ -44,12 +44,17 @@ services:
     ports:
       - "5678:5678"
     environment:
-      # ⚠️ CRITICAL: Basic Auth credentials must match .env file!
-      # These are read from env vars set by workflow from GitHub Secrets
-      # DO NOT hardcode values here - they come from .env created by workflow
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-admin}
+      # ⚠️ n8n 1.x USES USER MANAGEMENT (NOT Basic Auth!)
+      # 
+      # Official docs: https://docs.n8n.io/1-0-migration-checklist/
+      # "removes support for other authentication methods, such as BasicAuth"
+      # 
+      # Authentication in n8n 1.121.3:
+      #   1. Owner created via POST /rest/owner/setup
+      #   2. Authentication via cookie (n8n-auth)
+      #   3. NO Basic Auth support!
+      # 
+      # N8N_BASIC_AUTH_* variables REMOVED - they have NO EFFECT in n8n >= 1.0
       
       # Database settings
       DB_TYPE: postgresdb
