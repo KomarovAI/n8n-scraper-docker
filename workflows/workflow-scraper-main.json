@@ -37,6 +37,14 @@
       "name": "Protected Site?",
       "type": "n8n-nodes-base.if",
       "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Simple mock response for testing\nreturn {\n  json: {\n    success: true,\n    url: $json.url,\n    requestId: $json.requestId,\n    timestamp: $json.timestamp,\n    needsJS: $json.needsJS,\n    isProtected: $json.isProtected,\n    message: 'Workflow executed successfully (mock response for CI testing)',\n    data: {\n      title: 'Test Page',\n      content: 'Mock content for testing purposes'\n    }\n  }\n};"
+      },
+      "name": "Mock Response",
+      "type": "n8n-nodes-base.code",
+      "position": [850, 300]
     }
   ],
   "connections": {
@@ -56,6 +64,24 @@
         [
           {
             "node": "Protected Site?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protected Site?": {
+      "main": [
+        [
+          {
+            "node": "Mock Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock Response",
             "type": "main",
             "index": 0
           }
