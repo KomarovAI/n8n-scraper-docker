@@ -272,7 +272,11 @@ jobs:
           echo "⏳ Waiting for database (15s)..."
           sleep 15
           
-          # Start n8n with new image
+          # CRITICAL: Remove n8n container to force .env reload
+          echo "🔄 Forcing n8n container recreation for .env reload..."
+          docker-compose rm -f n8n 2>/dev/null || true
+          
+          # Start n8n with new image (creates fresh container with new .env)
           docker-compose up -d n8n tor
           echo "✅ Core services started"
           
