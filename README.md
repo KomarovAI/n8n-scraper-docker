@@ -1,15 +1,37 @@
 # n8n-scraper-docker 🤖
 
-[![Production-Ready](https://img.shields.io/badge/Production--Ready-success)](.)
-[![AI-ML-v3](https://img.shields.io/badge/AI%2FML-v3.0-blue?logo=ai)](.)
-[![Tests](https://img.shields.io/badge/Tests-2.5min-blueviolet)](.github/workflows/ci-max-parallel-clean.yaml)
-[![Security](https://img.shields.io/badge/Security-CVE--Patched-green)](SECURITY.md)
+[![Production-Ready](https://img.shields.io/badge/Production--Ready-success)](.)  
+[![AI-ML-v3](https://img.shields.io/badge/AI%2FML-v3.0-blue?logo=ai)](.)  
+[![Tests](https://img.shields.io/badge/Tests-2.5min-blueviolet)](.github/workflows/ci-max-parallel-clean.yaml)  
+[![Security](https://img.shields.io/badge/Security-CVE--Patched-green)](SECURITY.md)  
 [![Dependabot](https://img.shields.io/badge/Dependabot-Enabled-success)](.github/dependabot.yml)
+
+---
+
+## 🚨 **ВАЖНОЕ ОБНОВЛЕНИЕ (30.11.2025)**
+
+⚠️ **КРИТИЧЕСКИЕ ИСПРАВЛЕНИЯ ПРИМЕНЕНЫ**
+
+Если вы обновляете репозиторий или видите ошибки аутентификации:
+
+📚 **ОБЯЗАТЕЛЬНО ПРОЧИТАЙТЕ:** [docs/CRITICAL_FIXES_2025-11-30.md](docs/CRITICAL_FIXES_2025-11-30.md)
+
+**Что изменилось:**
+- ❌ **Basic Auth удалён** (n8n 1.0+ не поддерживает)
+- ✅ **User Management API** теперь единственная аутентификация
+- ✅ ML-сервис теперь опциональный (не блокирует n8n)
+- ✅ Увеличены healthcheck таймауты
+- ✅ Graceful degradation для ML
+
+**Официальная документация n8n 1.0:**  
+https://docs.n8n.io/1-0-migration-checklist/
+
+---
 
 <!-- AI_OVERVIEW_START -->
 > 🧠 **AI/ML Production v3.0**: Docker-first n8n scraping platform optimized for neural network integration. **87% success rate**, **5.3s latency**, **$2.88/1000 URLs**.
 
-**Core Stack**: n8n + PostgreSQL + Redis + Tor + ML-service + Ollama + Prometheus + Grafana
+**Core Stack**: n8n + PostgreSQL + Redis + Tor + ML-service + Ollama + Prometheus + Grafana  
 <!-- AI_OVERVIEW_END -->
 
 ---
@@ -23,16 +45,20 @@ git clone https://github.com/KomarovAI/n8n-scraper-docker.git
 cd n8n-scraper-docker
 chmod +x scripts/setup.sh && ./scripts/setup.sh
 
-# 2. Download ML model
-docker-compose exec ollama ollama pull llama3.2:3b
-docker-compose restart ml-service
+# 2. Start services
+docker-compose up -d
 
-# 3. Import workflows (n8n UI required)
-# http://localhost:5678 → Login → Import from workflows/*.json → Activate
+# 3. Create owner account
+# Open http://localhost:5678 in browser
+# n8n will redirect to /setup for first-time owner creation
+# Use email/password from .env file (N8N_USER/N8N_PASSWORD)
+
+# 4. Import workflows (optional)
+bash scripts/import-n8n-workflows.sh
 ```
 
-**Services**: n8n (5678), Grafana (3000), Prometheus (9090)
-**Credentials**: See `.credentials.txt` after setup
+**Services**: n8n (5678), Grafana (3000), Prometheus (9090)  
+**Credentials**: See `.credentials.txt` after setup  
 <!-- AI_QUICKSTART_END -->
 
 ---
@@ -220,7 +246,7 @@ yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}}}" .github/workf
 ## 📊 Production Metrics
 
 | Metric | Value | Context |
-|--------|-------|------|
+|--------|-------|---------|
 | **Success Rate** | 87% | All scraping targets |
 | **Latency (avg)** | 5.3s | Per URL + fallback |
 | **Cost** | $2.88 | Per 1K URLs |
@@ -255,7 +281,7 @@ grafana (3000)     → Dashboards
 - ✅ CI/CD (2.5min parallel tests)
 - ✅ Automated dependency updates
 
-**Details**: [ARCHITECTURE.md](ARCHITECTURE.md)
+**Details**: [ARCHITECTURE.md](ARCHITECTURE.md)  
 <!-- AI_ARCHITECTURE_END -->
 
 ---
@@ -271,7 +297,10 @@ grafana (3000)     → Dashboards
 POSTGRES_PASSWORD=<20+ chars>  # Generate: openssl rand -base64 24
 REDIS_PASSWORD=<20+ chars>
 
-# n8n Auth
+# n8n User Management (n8n 1.x+)
+# ВАЖНО: ЭТО НЕ Basic Auth!
+# N8N_USER - это email для owner account
+# N8N_PASSWORD - это пароль owner account
 N8N_USER=admin@example.com
 N8N_PASSWORD=<20+ chars>
 
@@ -347,12 +376,12 @@ bash tests/master/test_full_e2e.sh
 
 ### Compliance
 
-✅ SOC 2 Type II ready
-✅ GDPR compliant
-✅ CVE-2025-62725 mitigated
-✅ Security scanning (CI/CD)
+✅ SOC 2 Type II ready  
+✅ GDPR compliant  
+✅ CVE-2025-62725 mitigated  
+✅ Security scanning (CI/CD)  
 
-**Full Security Policy**: [SECURITY.md](SECURITY.md)
+**Full Security Policy**: [SECURITY.md](SECURITY.md)  
 <!-- AI_SECURITY_END -->
 
 ---
@@ -362,6 +391,7 @@ bash tests/master/test_full_e2e.sh
 
 ### Core Documentation
 
+- **⚠️ Critical Fixes**: [docs/CRITICAL_FIXES_2025-11-30.md](docs/CRITICAL_FIXES_2025-11-30.md) - **READ FIRST**
 - **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) - System design + diagrams
 - **Security**: [SECURITY.md](SECURITY.md) - CVE mitigation + security checklist
 - **Disaster Recovery**: [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) - Backup/restore procedures
@@ -372,7 +402,7 @@ bash tests/master/test_full_e2e.sh
 - **Hybrid Fallback**: [docs/HYBRID_FALLBACK_STRATEGY.md](docs/HYBRID_FALLBACK_STRATEGY.md) - Scraper routing logic
 - **Enhanced Scrapers**: [docs/NODRIVER_ENHANCED_V2.md](docs/NODRIVER_ENHANCED_V2.md) - nodriver implementation
 - **AI Instructions**: [.ai/instructions.md](.ai/instructions.md) - AI assistant guidelines
-- **AI Context**: [.ai/context.md](.ai/context.md) - Quick project overview for AI
+- **AI Context**: [.ai/context.md](.ai/context.md) - Quick project overview for AI  
 <!-- AI_DOCUMENTATION_END -->
 
 ---
@@ -414,6 +444,7 @@ gunzip -c backups/backup-2025-11-28.sql.gz | docker-compose exec -T postgres psq
 │   ├── workflows/              # CI/CD pipelines (14 tests)
 │   └── dependabot.yml          # Automated dependency updates
 ├── docs/                       # Technical documentation
+│   ├── CRITICAL_FIXES_2025-11-30.md  # ⚠️ READ FIRST
 │   ├── DISASTER_RECOVERY.md    # Backup/restore procedures
 │   ├── TROUBLESHOOTING.md      # Common issues
 │   ├── HYBRID_FALLBACK_STRATEGY.md
@@ -439,22 +470,23 @@ gunzip -c backups/backup-2025-11-28.sql.gz | docker-compose exec -T postgres psq
 
 ## 🏆 Status
 
-✅ Production-Ready (tested in prod)
-✅ AI/ML v3.0 (92% token reduction)
-✅ **AI-Optimized Documentation** (.ai/context.md, .ai/instructions.md)
-✅ **AI MANIFEST** (GitHub Actions YAML rules)
-✅ Multi-stage Docker builds
-✅ CUDA/ONNX support
-✅ Parallel tests (2.5min, 14 tests)
-✅ Full monitoring stack
-✅ Security scanned (CI/CD)
-✅ Zero memory leaks
-✅ CVE-2025-62725 documented
-✅ Disaster recovery procedures
-✅ Automated dependency updates
+✅ Production-Ready (tested in prod)  
+✅ AI/ML v3.0 (92% token reduction)  
+✅ **AI-Optimized Documentation** (.ai/context.md, .ai/instructions.md)  
+✅ **AI MANIFEST** (GitHub Actions YAML rules)  
+✅ Multi-stage Docker builds  
+✅ CUDA/ONNX support  
+✅ Parallel tests (2.5min, 14 tests)  
+✅ Full monitoring stack  
+✅ Security scanned (CI/CD)  
+✅ Zero memory leaks  
+✅ CVE-2025-62725 documented  
+✅ Disaster recovery procedures  
+✅ Automated dependency updates  
+✅ **Critical fixes applied** (30.11.2025)  
 
 ---
 
-**Version**: 3.0.0 | **License**: MIT | **Author**: [KomarovAI](https://github.com/KomarovAI)
+**Version**: 3.0.1 | **License**: MIT | **Author**: [KomarovAI](https://github.com/KomarovAI)
 
-**Updated**: 2025-11-29
+**Updated**: 2025-11-30
