@@ -1,17 +1,17 @@
 #!/bin/bash
 # Automated n8n Workflow Testing for CI/CD
-# Tests scraper workflows via n8n webhook API WITHOUT authentication
-# Fixed: webhook uses authentication: "none" in workflow definition
+# Enhanced with better timeout handling and validation
+# Fixed: Increased retries for webhook initialization delays
 
-set -euo pipefail  # CRITICAL: -o pipefail ensures pipe failures are caught
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo "🧪 n8n Workflow Testing Suite"
-echo "═══════════════════════════════════════"
+echo "🧪 n8n Workflow Testing Suite (Enhanced)"
+echo "═══════════════════════════════════════════"
 echo ""
 
 # Configuration
@@ -68,20 +68,25 @@ echo ""
 
 # ══════════════════════════════════════════════════════════════════
 # PREFLIGHT CHECK: WEBHOOK READINESS VERIFICATION
-# FIXED: Webhooks in n8n need time to initialize routing after activation
-# Testing without authentication as workflow uses authentication: "none"
+# ENHANCED: Increased retries and better validation
+# Source: https://community.n8n.io/t/important-delay-before-webhooks-triggering/223593
+# "The delay between receiving the webhook and the workflow starting is too high: 
+#  sometimes over 90 seconds."
 # ══════════════════════════════════════════════════════════════════
 
 echo "🔍 Pre-flight check: verifying webhook readiness..."
 echo "──────────────────────────────────────────────────────────────────"
 
 PREFLIGHT_URL="https://httpbin.org/html"
-PREFLIGHT_RETRIES=10  # Увеличено с 3 до 10
-PREFLIGHT_DELAY=5      # Увеличено с 3 до 5 секунд
+PREFLIGHT_RETRIES=30  # Увеличено с 10 до 30 (150s total)
+PREFLIGHT_DELAY=5     # 5 секунд между попытками
 PREFLIGHT_SUCCESS=false
 
+echo "Configuration: ${PREFLIGHT_RETRIES} attempts with ${PREFLIGHT_DELAY}s delay (${PREFLIGHT_RETRIES}*${PREFLIGHT_DELAY}=${PREFLIGHT_RETRIES}*${PREFLIGHT_DELAY} = $((PREFLIGHT_RETRIES * PREFLIGHT_DELAY))s total)"
+echo ""
+
 for ((i=1; i<=PREFLIGHT_RETRIES; i++)); do
-  echo "   Attempt $i/$PREFLIGHT_RETRIES: Testing webhook endpoint (waiting ${PREFLIGHT_DELAY}s between attempts)..."
+  echo "   Attempt $i/$PREFLIGHT_RETRIES: Testing webhook endpoint..."
   
   # Тестируем БЕЗ Basic Auth, как настроен webhook
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
@@ -90,10 +95,10 @@ for ((i=1; i<=PREFLIGHT_RETRIES; i++)); do
     -d "{\"url\": \"$PREFLIGHT_URL\"}" \
     --max-time 15 2>&1 || echo "000")
   
-  echo "   HTTP Status Code: $HTTP_CODE"
+  echo "      HTTP Status Code: $HTTP_CODE"
   
-  # Успех если получили 200-299 или даже 404 (значит endpoint существует)
-  if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 500 ]; then
+  # Успех если получили 2xx
+  if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
     # Теперь проверим что ответ валидный
     RESPONSE=$(curl -s -X POST \
       -H "Content-Type: application/json" \
@@ -101,39 +106,54 @@ for ((i=1; i<=PREFLIGHT_RETRIES; i++)); do
       -d "{\"url\": \"$PREFLIGHT_URL\"}" \
       --max-time 15 2>&1 || echo "CONNECTION_ERROR")
     
-    # Проверяем что НЕ получили ошибку и есть валидный JSON
+    RESPONSE_LEN=${#RESPONSE}
+    echo "      Response length: ${RESPONSE_LEN} chars"
+    
+    # Проверяем что НЕ получили ошибку
     if [ "$RESPONSE" != "CONNECTION_ERROR" ] && \
+       [ "$RESPONSE_LEN" -gt 10 ] && \
        ! echo "$RESPONSE" | grep -qi "Error in workflow" && \
        ! echo "$RESPONSE" | grep -qi "Workflow.*not found" && \
-       ! echo "$RESPONSE" | grep -qi "Could not find" && \
-       (echo "$RESPONSE" | grep -qE '"success":|"data":|"content":|"title":'); then
-      PREFLIGHT_SUCCESS=true
-      echo -e "   ${GREEN}✅ Webhook is responding correctly and ready!${NC}"
-      echo "   Response preview: ${RESPONSE:0:150}..."
-      break
+       ! echo "$RESPONSE" | grep -qi "Could not find"; then
+      
+      # Проверяем JSON структуру
+      if echo "$RESPONSE" | grep -qE '"success":|"data":|"content":|"title":|"html"'; then
+        PREFLIGHT_SUCCESS=true
+        echo -e "      ${GREEN}✅ Webhook is responding correctly and ready!${NC}"
+        echo "      Response preview: ${RESPONSE:0:100}..."
+        break
+      else
+        echo -e "      ${YELLOW}⏳ Webhook responded but JSON structure invalid...${NC}"
+        echo "      Response preview: ${RESPONSE:0:200}"
+      fi
     else
-      echo -e "   ${YELLOW}⏳ Webhook responded but workflow not ready yet...${NC}"
-      echo "   Response: ${RESPONSE:0:200}"
+      echo -e "      ${YELLOW}⏳ Webhook responded but workflow not ready yet...${NC}"
+      if [ "$RESPONSE_LEN" -lt 200 ]; then
+        echo "      Response: $RESPONSE"
+      else
+        echo "      Response preview: ${RESPONSE:0:200}..."
+      fi
     fi
   else
-    echo -e "   ${YELLOW}⏳ Webhook endpoint not ready (HTTP $HTTP_CODE)...${NC}"
+    echo -e "      ${YELLOW}⏳ Webhook endpoint not ready (HTTP $HTTP_CODE)...${NC}"
   fi
   
   if [ $i -lt $PREFLIGHT_RETRIES ]; then
-    echo -e "   ${YELLOW}⏳ Waiting ${PREFLIGHT_DELAY} seconds before retry...${NC}"
+    echo -e "      ${YELLOW}⏳ Waiting ${PREFLIGHT_DELAY} seconds before retry...${NC}"
     sleep $PREFLIGHT_DELAY
   fi
 done
 
 if [ "$PREFLIGHT_SUCCESS" = false ]; then
-  echo -e "${RED}❌ ERROR: Webhook failed to initialize after $PREFLIGHT_RETRIES attempts ($(($PREFLIGHT_RETRIES * $PREFLIGHT_DELAY))s total)${NC}"
+  echo -e "${RED}❌ ERROR: Webhook failed to initialize after $PREFLIGHT_RETRIES attempts ($(($PREFLIGHT_RETRIES * PREFLIGHT_DELAY))s total)${NC}"
   echo ""
   echo "💡 Debug checklist:"
-  echo "   1. Check if workflows are ACTIVE: docker-compose exec n8n n8n list:workflow"
-  echo "   2. Check n8n logs: docker-compose logs --tail=100 n8n"
+  echo "   1. Check if workflows are ACTIVE: docker exec n8n-app sh -c 'n8n list:workflow'"
+  echo "   2. Check n8n logs: docker logs n8n-app --tail=100"
   echo "   3. Verify webhook path matches workflow: $WEBHOOK_PATH"
   echo "   4. Test manually: curl -X POST ${N8N_URL}${WEBHOOK_PATH} -H 'Content-Type: application/json' -d '{\"url\":\"https://example.com\"}'"
-  echo "   5. Check webhook registration in logs: docker-compose logs n8n | grep -i webhook"
+  echo "   5. Check webhook registration in logs: docker logs n8n-app 2>&1 | grep -i webhook"
+  echo "   6. Run diagnostic: bash scripts/debug-webhook-status.sh"
   exit 1
 fi
 
@@ -187,7 +207,7 @@ test_url() {
 
 # Run tests
 echo "🧪 Running workflow tests..."
-echo "───────────────────────────────────────"
+echo "───────────────────────────────────────────"
 for url in "${TEST_URLS[@]}"; do
   test_url "$url" || true
 done
@@ -201,9 +221,9 @@ fi
 
 # Summary
 echo ""
-echo "═══════════════════════════════════════"
+echo "═══════════════════════════════════════════"
 echo "📊 Test Results Summary"
-echo "═══════════════════════════════════════"
+echo "═══════════════════════════════════════════"
 echo "  Total Tests:  $TOTAL"
 echo -e "  Passed:       ${GREEN}$PASSED${NC}"
 echo -e "  Failed:       ${RED}$FAILED${NC}"
@@ -249,10 +269,10 @@ else
   echo -e "${RED}⚠️  Some tests failed!${NC}"
   echo ""
   echo "💡 Debug tips:"
-  echo "   1. Check n8n logs: docker-compose logs n8n"
+  echo "   1. Check n8n logs: docker logs n8n-app --tail=100"
   echo "   2. Verify workflows are active in n8n UI"
   echo "   3. Check webhook path: ${N8N_URL}${WEBHOOK_PATH}"
   echo "   4. Test manually: curl -X POST ${N8N_URL}${WEBHOOK_PATH} -H 'Content-Type: application/json' -d '{\"url\":\"https://example.com\"}'"
-  echo "   5. Check webhook uses authentication='none': cat workflows/workflow-scraper-main.json | grep authentication"
+  echo "   5. Run diagnostic: bash scripts/debug-webhook-status.sh"
   exit 1
 fi
