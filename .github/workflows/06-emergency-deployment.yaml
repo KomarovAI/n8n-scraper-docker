@@ -1,0 +1,439 @@
+name: 🚨 Emergency Deployment (Manual Only)
+
+# ⚠️ CRITICAL: Этот workflow деплоит БЕЗ ПРОВЕРОК!
+# Используется только для hotfix и emergency ситуаций
+
+on:
+  # ТОЛЬКО ручной запуск - никаких автоматических триггеров
+  workflow_dispatch:
+    inputs:
+      deployment_reason:
+        description: 'Причина emergency деплоя (обязательно)'
+        required: true
+        type: string
+      skip_backup:
+        description: 'Пропустить backup (НЕ рекомендуется)'
+        required: false
+        type: boolean
+        default: false
+      force_restart:
+        description: 'Force restart всех сервисов'
+        required: false
+        type: boolean
+        default: false
+
+# Не позволяем запускать несколько emergency деплоев одновременно
+concurrency:
+  group: emergency-deployment
+  cancel-in-progress: false
+
+env:
+  DEPLOY_DIR: /home/artikk/n8n-production
+  BACKUP_DIR: /home/artikk/n8n-backups
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  # ⚠️ ПРЕДУПРЕЖДЕНИЕ
+  emergency-warning:
+    name: ⚠️ Emergency Deployment Warning
+    runs-on: self-hosted
+    steps:
+      - name: 🚨 Display warning banner
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║                                                               ║"
+          echo "║               ⚠️  EMERGENCY DEPLOYMENT MODE ⚠️                ║"
+          echo "║                                                               ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "⚠️  WARNING: Deploying WITHOUT validation checks!"
+          echo ""
+          echo "🔓 BYPASSING:"
+          echo "   • Infrastructure checks"
+          echo "   • n8n validation tests"
+          echo "   • E2E tests"
+          echo "   • Code quality checks"
+          echo "   • Security scans"
+          echo ""
+          echo "📋 DEPLOYMENT INFO:"
+          echo "   • Reason: ${{ github.event.inputs.deployment_reason }}"
+          echo "   • Triggered by: ${{ github.actor }}"
+          echo "   • Branch: ${{ github.ref }}"
+          echo "   • Commit: ${{ github.sha }}"
+          echo "   • Skip Backup: ${{ github.event.inputs.skip_backup }}"
+          echo "   • Force Restart: ${{ github.event.inputs.force_restart }}"
+          echo "   • Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "⚡ Proceeding with emergency deployment..."
+          echo ""
+
+  # 💾 BACKUP (опциональный)
+  emergency-backup:
+    name: 💾 Emergency Backup
+    runs-on: self-hosted
+    needs: emergency-warning
+    if: github.event.inputs.skip_backup != 'true'
+    steps:
+      - name: 💾 Create emergency backup
+        run: |
+          echo "💾 Creating emergency backup..."
+          
+          mkdir -p ${{ env.BACKUP_DIR }}
+          
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          BACKUP_NAME="emergency-backup-${TIMESTAMP}"
+          
+          # Backup PostgreSQL
+          if docker ps | grep -q postgres; then
+            echo "📦 Backing up PostgreSQL..."
+            docker exec postgres pg_dump -U n8n n8n > "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
+            gzip "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
+            echo "✅ Database backup: ${BACKUP_NAME}.sql.gz"
+          else
+            echo "⚠️  PostgreSQL not running - skipping DB backup"
+          fi
+          
+          # Backup .env
+          if [ -f "${{ env.DEPLOY_DIR }}/.env" ]; then
+            cp "${{ env.DEPLOY_DIR }}/.env" "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.env"
+            echo "✅ .env file backed up"
+          fi
+          
+          # Backup current docker-compose.yml
+          if [ -f "${{ env.DEPLOY_DIR }}/docker-compose.yml" ]; then
+            cp "${{ env.DEPLOY_DIR }}/docker-compose.yml" "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.docker-compose.yml"
+            echo "✅ docker-compose.yml backed up"
+          fi
+          
+          echo ""
+          echo "✅ Emergency backup completed: ${BACKUP_NAME}"
+          echo "Backup location: ${{ env.BACKUP_DIR }}"
+
+  # 🚀 EMERGENCY DEPLOYMENT
+  emergency-deploy:
+    name: 🚀 Emergency Deploy to Production
+    runs-on: self-hosted
+    needs: [emergency-warning, emergency-backup]
+    if: always() && needs.emergency-warning.result == 'success'
+    timeout-minutes: 15
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+      
+      - name: 📋 Log deployment start
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🚨 EMERGENCY DEPLOYMENT STARTED"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Reason: ${{ github.event.inputs.deployment_reason }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Time: $(date)"
+          echo ""
+      
+      - name: 📂 Prepare production directory
+        run: |
+          echo "📂 Syncing code to production..."
+          
+          mkdir -p ${{ env.DEPLOY_DIR }}
+          
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='_work' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            ./ ${{ env.DEPLOY_DIR }}/
+          
+          echo "✅ Code synced"
+      
+      - name: 🔑 Create production .env
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🔑 Creating production .env..."
+          
+          cat > .env << EOF
+          # Emergency Deployment Environment
+          # Generated: $(date)
+          # Reason: ${{ github.event.inputs.deployment_reason }}
+          
+          # Database
+          POSTGRES_DB=n8n
+          POSTGRES_USER=n8n
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          
+          # Redis
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Configuration
+          N8N_HOST=0.0.0.0
+          N8N_PORT=5678
+          N8N_PROTOCOL=http
+          WEBHOOK_URL=http://192.168.0.105:5678/
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
+          
+          # Tor
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          
+          chmod 600 .env
+          echo "✅ Production .env created"
+      
+      - name: 🏭 Build production images
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🏭 Building Docker images..."
+          
+          docker build \
+            -t n8n-enhanced:production \
+            -t n8n-enhanced:latest \
+            -t n8n-enhanced:emergency-$(date +%Y%m%d-%H%M%S) \
+            -f Dockerfile.n8n-enhanced \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            .
+          
+          echo "✅ Images built"
+      
+      - name: 🛑 Stop services
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🛑 Stopping services..."
+          
+          if [ "${{ github.event.inputs.force_restart }}" = "true" ]; then
+            echo "⚡ Force restart enabled - stopping ALL services"
+            docker compose down
+          else
+            echo "🔄 Graceful stop - keeping database running"
+            docker compose stop n8n tor ml-service ollama 2>/dev/null || true
+          fi
+          
+          sleep 5
+          echo "✅ Services stopped"
+      
+      - name: 🗑️ Clean old containers (if force restart)
+        if: github.event.inputs.force_restart == 'true'
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🗑️ Removing old containers..."
+          docker compose down -v 2>/dev/null || true
+          echo "✅ Cleanup complete"
+      
+      - name: 🚀 Start production services
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🚀 Starting production services..."
+          
+          # Start database and Redis
+          docker compose up -d postgres redis
+          echo "⏳ Waiting for database (15s)..."
+          sleep 15
+          
+          # Start n8n with new image
+          docker compose up -d n8n tor
+          echo "✅ Core services started"
+          
+          # Start monitoring (non-blocking)
+          docker compose up -d prometheus grafana 2>/dev/null || echo "⚠️  Monitoring services unavailable"
+          
+          echo "✅ All services started"
+      
+      - name: ⏳ Wait for n8n startup
+        run: |
+          echo "⏳ Waiting for n8n to become healthy..."
+          
+          MAX_ATTEMPTS=60
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+              echo "✅ n8n is healthy!"
+              
+              # Display service status
+              docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
+              exit 0
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            
+            if [ $((ATTEMPT % 10)) -eq 0 ]; then
+              echo "⏳ Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+            fi
+            
+            sleep 2
+          done
+          
+          echo "❌ n8n failed to start within timeout!"
+          echo ""
+          echo "📋 Recent logs:"
+          docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml logs --tail=100 n8n
+          exit 1
+      
+      - name: 🧪 Basic health check
+        run: |
+          echo "🧪 Running basic health checks..."
+          
+          CHECKS_PASSED=0
+          CHECKS_FAILED=0
+          
+          # Check n8n
+          if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+            echo "✅ n8n health check passed"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          else
+            echo "❌ n8n health check failed"
+            CHECKS_FAILED=$((CHECKS_FAILED + 1))
+          fi
+          
+          # Check PostgreSQL
+          if docker exec postgres pg_isready -U n8n > /dev/null 2>&1; then
+            echo "✅ PostgreSQL check passed"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          else
+            echo "❌ PostgreSQL check failed"
+            CHECKS_FAILED=$((CHECKS_FAILED + 1))
+          fi
+          
+          # Check Redis
+          if docker exec redis redis-cli ping 2>/dev/null | grep -q PONG; then
+            echo "✅ Redis check passed"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          else
+            echo "❌ Redis check failed"
+            CHECKS_FAILED=$((CHECKS_FAILED + 1))
+          fi
+          
+          echo ""
+          echo "Health Check Summary: $CHECKS_PASSED passed, $CHECKS_FAILED failed"
+          
+          if [ $CHECKS_FAILED -gt 1 ]; then
+            echo "⚠️  Multiple services failed health checks!"
+            exit 1
+          fi
+          
+          if [ $CHECKS_FAILED -eq 1 ]; then
+            echo "⚠️  One service failed - continuing (emergency mode)"
+          fi
+          
+          echo "✅ Basic health checks acceptable"
+      
+      - name: 📋 Display deployment info
+        if: success()
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║                                                               ║"
+          echo "║            ✅ EMERGENCY DEPLOYMENT SUCCESSFUL ✅              ║"
+          echo "║                                                               ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "📋 Deployment Details:"
+          echo "   • Reason: ${{ github.event.inputs.deployment_reason }}"
+          echo "   • Commit: ${{ github.sha }}"
+          echo "   • Branch: ${{ github.ref }}"
+          echo "   • Deployed By: ${{ github.actor }}"
+          echo "   • Deploy Time: $(date)"
+          echo ""
+          echo "🔗 Access URLs:"
+          echo "   • n8n: http://192.168.0.105:5678"
+          echo "   • Grafana: http://192.168.0.105:3001"
+          echo "   • Prometheus: http://192.168.0.105:9090"
+          echo ""
+          echo "📊 Service Status:"
+          docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
+          echo ""
+          echo "⚠️  IMPORTANT: Run full validation when possible!"
+          echo ""
+      
+      - name: 🚨 Rollback on failure
+        if: failure()
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║                                                               ║"
+          echo "║               ❌ EMERGENCY DEPLOYMENT FAILED ❌               ║"
+          echo "║                                                               ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "🚨 Attempting emergency rollback..."
+          
+          # Stop broken services
+          docker compose down n8n tor
+          
+          # Try to restart with old image
+          docker compose up -d n8n tor
+          
+          echo ""
+          echo "📋 Post-rollback logs:"
+          docker compose logs --tail=100 n8n
+          echo ""
+          echo "⚠️  Manual intervention may be required!"
+          echo ""
+          echo "🔍 Check backup location: ${{ env.BACKUP_DIR }}"
+          echo "🔍 Check logs: docker compose logs n8n"
+
+  # 📊 DEPLOYMENT SUMMARY
+  emergency-summary:
+    name: 📊 Emergency Deployment Summary
+    runs-on: self-hosted
+    needs: [emergency-warning, emergency-backup, emergency-deploy]
+    if: always()
+    steps:
+      - name: 📊 Generate summary
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "📊 EMERGENCY DEPLOYMENT SUMMARY"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Deployment Status: ${{ needs.emergency-deploy.result }}"
+          echo "Backup Status: ${{ needs.emergency-backup.result }}"
+          echo ""
+          echo "📋 Details:"
+          echo "   • Reason: ${{ github.event.inputs.deployment_reason }}"
+          echo "   • Triggered by: ${{ github.actor }}"
+          echo "   • Commit: ${{ github.sha }}"
+          echo "   • Branch: ${{ github.ref }}"
+          echo "   • Time: $(date)"
+          echo "   • Skip Backup: ${{ github.event.inputs.skip_backup }}"
+          echo "   • Force Restart: ${{ github.event.inputs.force_restart }}"
+          echo ""
+          
+          if [ "${{ needs.emergency-deploy.result }}" = "success" ]; then
+            echo "✅ Emergency deployment completed successfully!"
+            echo ""
+            echo "🔍 Next Steps:"
+            echo "   1. Verify n8n: http://192.168.0.105:5678"
+            echo "   2. Check logs: docker compose logs -f n8n"
+            echo "   3. Monitor metrics: http://192.168.0.105:3001"
+            echo "   4. Run full validation when possible"
+            echo ""
+            echo "📁 Backup location: ${{ env.BACKUP_DIR }}"
+          else
+            echo "❌ Emergency deployment FAILED!"
+            echo ""
+            echo "🔍 Troubleshooting:"
+            echo "   1. Check n8n logs: docker compose logs n8n"
+            echo "   2. Check service status: docker compose ps"
+            echo "   3. Review backup: ls -lh ${{ env.BACKUP_DIR }}"
+            echo "   4. Manual recovery may be required"
+            echo ""
+            echo "📞 Contact: ${{ github.actor }}"
+          fi
+          
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
