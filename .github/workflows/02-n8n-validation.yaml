@@ -26,7 +26,7 @@ env:
 jobs:
   essential-tests:
     name: Essential Tests
-    runs-on: self-hosted  # ← ТВОЙpostMessage RUNNER artikk!
+    runs-on: self-hosted  # ← ТВОЙ RUNNER artikk!
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -69,7 +69,8 @@ jobs:
           N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
           
           # n8n API Authentication (Manual - created once)
-          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
+          # ✅ FIXED: Use N8N_API (matches existing secret name)
+          N8N_API_KEY=${{ secrets.N8N_API }}
           
           # Tor Control
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
@@ -239,7 +240,8 @@ jobs:
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
+          # ✅ FIXED: Use N8N_API instead of N8N_API_KEY
+          N8N_API_KEY=${{ secrets.N8N_API }}
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
@@ -309,10 +311,53 @@ jobs:
         timeout-minutes: 3
         continue-on-error: false
       
+      # ✅ NEW: Auto-generate API key if N8N_API secret is not set
+      - name: 🔑 Generate API Key (if needed)
+        id: api_key
+        env:
+          N8N_URL: "http://localhost:5678"
+          N8N_USER: ${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
+          N8N_API_SECRET: ${{ secrets.N8N_API }}
+        run: |
+          if [ -z "$N8N_API_SECRET" ]; then
+            echo "⚠️  N8N_API secret not found, generating temporary API key..."
+            
+            # Login and get cookie
+            curl -s -c /tmp/n8n-cookies.txt \
+              -X POST "$N8N_URL/rest/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\": \"$N8N_USER\", \"password\": \"$N8N_PASSWORD\"}" > /dev/null
+            
+            # Create API key
+            API_KEY_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt \
+              -X POST "$N8N_URL/rest/api-keys" \
+              -H "Content-Type: application/json" \
+              -d '{"label": "CI Temporary Key"}')
+            
+            API_KEY=$(echo "$API_KEY_RESPONSE" | jq -r '.apiKey')
+            
+            if [ "$API_KEY" != "null" ] && [ -n "$API_KEY" ]; then
+              echo "✅ API Key generated: ${API_KEY:0:20}..."
+              echo "N8N_API_KEY=$API_KEY" >> $GITHUB_ENV
+            else
+              echo "❌ Failed to generate API key"
+              echo "Response: $API_KEY_RESPONSE"
+              exit 1
+            fi
+            
+            rm -f /tmp/n8n-cookies.txt
+          else
+            echo "✅ Using N8N_API from secrets"
+            echo "N8N_API_KEY=$N8N_API_SECRET" >> $GITHUB_ENV
+          fi
+        timeout-minutes: 2
+      
       - name: 📦 Initialize workflows with API Key
         env:
           N8N_URL: "http://localhost:5678"
-          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+          # ✅ Use either generated or stored API key
+          N8N_API_KEY: ${{ env.N8N_API_KEY }}
           WORKFLOWS_DIR: "workflows"
         run: |
           chmod +x scripts/init-workflows-api-key.sh
