@@ -1,6 +1,6 @@
 #!/bin/bash
 # Import n8n workflows via API and activate them
-# Uses Basic Authentication (compatible with N8N_BASIC_AUTH_ACTIVE=true)
+# Uses Basic Authentication (N8N_BASIC_AUTH_ACTIVE=true)
 
 set -e
 
@@ -53,146 +53,42 @@ echo -e "${GREEN}✅ Basic Auth ready${NC}"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════
-# IDEMPOTENT OWNER SETUP
+# BASIC AUTH - НЕ ИСПОЛЬЗУЕМ OWNER SETUP API
 # 
-# n8n does NOT provide an endpoint to check if owner exists!
-# Solution: Always POST to /rest/owner/setup and handle results:
-#   - 200/201 → Owner created successfully
-#   - 400/409 → Owner already exists (NORMAL, not an error!)
+# ✅ ИСПРАВЛЕНО: Используем ТОЛЬКО Basic Auth
 # 
-# This is the production-proven approach used in:
-#   - digital-boss/n8n-manager
-#   - Community recommendations
-#   - Kubernetes/Docker deployments
+# В n8n v1.121.3 owner setup API НЕ АКТИВИРУЕТ Basic Auth!
+# Если заданы N8N_BASIC_AUTH_ACTIVE=true + credentials:
+#   - Basic Auth работает СРАЗУ после запуска
+#   - Owner setup API НЕ НУЖЕН
+#   - Не нужно ждать auth middleware initialization
+# 
+# docker-compose.ci.yml уже настроен:
+#   N8N_BASIC_AUTH_ACTIVE: "true"
+#   N8N_BASIC_AUTH_USER: admin
+#   N8N_BASIC_AUTH_PASSWORD: admin
 # ═══════════════════════════════════════════════════════════════
 
-echo "🔧 Setting up owner account..."
+echo "🔍 Verifying Basic Auth credentials..."
 
-SETUP_RESPONSE=$(curl -s -w "\n%{http_code}" \
-  -H "Content-Type: application/json" \
-  -X POST "${N8N_URL}/rest/owner/setup" \
-  -d "{
-    \"email\": \"${N8N_USER}\",
-    \"password\": \"${N8N_PASSWORD}\",
-    \"firstName\": \"CI\",
-    \"lastName\": \"User\"
-  }" 2>&1)
+AUTH_CHECK=$(curl -s -w "\n%{http_code}" \
+  -H "${AUTH_HEADER}" \
+  "${N8N_URL}/rest/workflows" 2>&1)
 
-SETUP_HTTP=$(echo "$SETUP_RESPONSE" | tail -n1)
-SETUP_BODY=$(echo "$SETUP_RESPONSE" | sed '$d')
+AUTH_STATUS=$(echo "$AUTH_CHECK" | tail -n1)
+AUTH_BODY=$(echo "$AUTH_CHECK" | sed '$d')
 
-OWNER_CREATED=false
-
-if [ "$SETUP_HTTP" -eq 200 ] || [ "$SETUP_HTTP" -eq 201 ]; then
-  echo -e "${GREEN}✅ Owner created successfully (first-time setup)${NC}"
-  OWNER_CREATED=true
-  echo ""
-  
-elif [ "$SETUP_HTTP" -eq 400 ] || [ "$SETUP_HTTP" -eq 409 ]; then
-  echo -e "${BLUE}ℹ️  Owner already exists (HTTP $SETUP_HTTP)${NC}"
-  
-  # Check if it's "already exists" vs "validation error"
-  if echo "$SETUP_BODY" | grep -qi "already\|exist\|conflict"; then
-    echo -e "${BLUE}ℹ️  Owner setup already completed${NC}"
-    OWNER_CREATED=false
-  else
-    echo -e "${RED}❌ Validation error from owner setup:${NC}"
-    echo "$SETUP_BODY"
-    exit 1
-  fi
-  echo ""
-  
+if [ "$AUTH_STATUS" -eq 200 ]; then
+  echo -e "${GREEN}✅ Basic Auth working correctly${NC}"
 else
-  echo -e "${RED}❌ Unexpected response from /rest/owner/setup (HTTP $SETUP_HTTP)${NC}"
-  echo "Response: $SETUP_BODY"
-  exit 1
-fi
-
-# ═══════════════════════════════════════════════════════════════
-# VERIFY CREDENTIALS FOR n8n v1.121.3
-# 
-# ✅ ИСПРАВЛЕНО: Используем /rest/workflows вместо /rest/me
-# 
-# В n8n v1.121.3 endpoint /rest/me НЕ СУЩЕСТВУЕТ!
-# Вместо этого проверяем авторизацию через /rest/workflows:
-#   - 200 → Auth работает, можно получить список workflow
-#   - 401 → Неправильные credentials
-#   - 404 → API endpoint не найден (проблема версии)
-# 
-# If owner was JUST created:
-#   - Auth middleware needs time to initialize
-#   - Wait 10s + retry with exponential backoff
-# 
-# If owner ALREADY existed:
-#   - Auth should work immediately
-#   - If 401 → password is DIFFERENT (clear error)
-# ═══════════════════════════════════════════════════════════════
-
-if [ "$OWNER_CREATED" = true ]; then
-  # Owner just created - auth middleware needs time
-  echo "⏳ Waiting 10s for auth middleware initialization..."
-  sleep 10
+  echo -e "${RED}❌ Basic Auth failed (HTTP $AUTH_STATUS)${NC}"
+  echo "Response: ${AUTH_BODY:0:200}"
   echo ""
-fi
-
-echo "🔍 Verifying credentials..."
-
-AUTH_READY=false
-MAX_ATTEMPTS=10
-
-for attempt in $(seq 1 $MAX_ATTEMPTS); do
-  # ✅ ИСПРАВЛЕНО: Используем /rest/workflows вместо /rest/me
-  AUTH_CHECK=$(curl -s -w "\n%{http_code}" \
-    -H "${AUTH_HEADER}" \
-    "${N8N_URL}/rest/workflows" 2>&1)
-  
-  AUTH_STATUS=$(echo "$AUTH_CHECK" | tail -n1)
-  AUTH_BODY=$(echo "$AUTH_CHECK" | sed '$d')
-  
-  if [ "$AUTH_STATUS" -eq 200 ]; then
-    if [ "$attempt" -eq 1 ]; then
-      echo -e "${GREEN}✅ Credentials valid${NC}"
-    else
-      echo -e "${GREEN}✅ Auth ready after attempt $attempt${NC}"
-    fi
-    AUTH_READY=true
-    break
-  fi
-  
-  if [ "$AUTH_STATUS" -eq 401 ]; then
-    if [ "$OWNER_CREATED" = false ]; then
-      # Owner existed before, 401 means WRONG PASSWORD
-      echo -e "${RED}❌ Authentication failed (HTTP 401)${NC}"
-      echo -e "${RED}❌ Owner exists but password is DIFFERENT${NC}"
-      echo -e "${YELLOW}⚠️  Update N8N_PASSWORD in GitHub Secrets to match existing owner${NC}"
-      exit 1
-    else
-      # Owner just created, 401 might mean auth not ready yet
-      if [ "$attempt" -lt $MAX_ATTEMPTS ]; then
-        echo "   Attempt $attempt/$MAX_ATTEMPTS: Auth not ready (HTTP 401), retrying in 2s..."
-        sleep 2
-        continue
-      else
-        echo -e "${RED}❌ Auth failed to initialize after $MAX_ATTEMPTS attempts${NC}"
-        exit 1
-      fi
-    fi
-  fi
-  
-  # Other HTTP codes (404, 500, etc.)
-  if [ "$OWNER_CREATED" = true ] && [ "$attempt" -lt $MAX_ATTEMPTS ]; then
-    echo "   Attempt $attempt/$MAX_ATTEMPTS: Unexpected status (HTTP $AUTH_STATUS), retrying in 2s..."
-    sleep 2
-  else
-    echo -e "${RED}❌ Unexpected response from /rest/workflows (HTTP $AUTH_STATUS)${NC}"
-    echo "Response: ${AUTH_BODY:0:200}"
-    exit 1
-  fi
-done
-
-if [ "$AUTH_READY" = false ]; then
-  echo -e "${RED}❌ Auth failed to initialize after $MAX_ATTEMPTS attempts (30s total)${NC}"
-  echo -e "${YELLOW}⚠️  This indicates n8n auth middleware issue${NC}"
+  echo -e "${YELLOW}⚠️  Troubleshooting:${NC}"
+  echo "   1. Check N8N_BASIC_AUTH_ACTIVE=true in docker-compose"
+  echo "   2. Verify N8N_BASIC_AUTH_USER matches N8N_USER"
+  echo "   3. Verify N8N_BASIC_AUTH_PASSWORD matches N8N_PASSWORD"
+  echo "   4. Check n8n container logs: docker logs n8n-app"
   exit 1
 fi
 
