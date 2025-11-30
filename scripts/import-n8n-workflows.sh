@@ -109,10 +109,15 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# VERIFY CREDENTIALS
+# VERIFY CREDENTIALS FOR n8n v1.121.3
 # 
-# Always verify that credentials work, regardless of whether owner
-# was just created or already existed.
+# ✅ ИСПРАВЛЕНО: Используем /rest/workflows вместо /rest/me
+# 
+# В n8n v1.121.3 endpoint /rest/me НЕ СУЩЕСТВУЕТ!
+# Вместо этого проверяем авторизацию через /rest/workflows:
+#   - 200 → Auth работает, можно получить список workflow
+#   - 401 → Неправильные credentials
+#   - 404 → API endpoint не найден (проблема версии)
 # 
 # If owner was JUST created:
 #   - Auth middleware needs time to initialize
@@ -136,14 +141,15 @@ AUTH_READY=false
 MAX_ATTEMPTS=10
 
 for attempt in $(seq 1 $MAX_ATTEMPTS); do
-  ME_CHECK=$(curl -s -w "\n%{http_code}" \
+  # ✅ ИСПРАВЛЕНО: Используем /rest/workflows вместо /rest/me
+  AUTH_CHECK=$(curl -s -w "\n%{http_code}" \
     -H "${AUTH_HEADER}" \
-    "${N8N_URL}/rest/me" 2>&1)
+    "${N8N_URL}/rest/workflows" 2>&1)
   
-  ME_STATUS=$(echo "$ME_CHECK" | tail -n1)
-  ME_BODY=$(echo "$ME_CHECK" | sed '$d')
+  AUTH_STATUS=$(echo "$AUTH_CHECK" | tail -n1)
+  AUTH_BODY=$(echo "$AUTH_CHECK" | sed '$d')
   
-  if [ "$ME_STATUS" -eq 200 ]; then
+  if [ "$AUTH_STATUS" -eq 200 ]; then
     if [ "$attempt" -eq 1 ]; then
       echo -e "${GREEN}✅ Credentials valid${NC}"
     else
@@ -153,7 +159,7 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
     break
   fi
   
-  if [ "$ME_STATUS" -eq 401 ]; then
+  if [ "$AUTH_STATUS" -eq 401 ]; then
     if [ "$OWNER_CREATED" = false ]; then
       # Owner existed before, 401 means WRONG PASSWORD
       echo -e "${RED}❌ Authentication failed (HTTP 401)${NC}"
@@ -175,11 +181,11 @@ for attempt in $(seq 1 $MAX_ATTEMPTS); do
   
   # Other HTTP codes (404, 500, etc.)
   if [ "$OWNER_CREATED" = true ] && [ "$attempt" -lt $MAX_ATTEMPTS ]; then
-    echo "   Attempt $attempt/$MAX_ATTEMPTS: Unexpected status (HTTP $ME_STATUS), retrying in 2s..."
+    echo "   Attempt $attempt/$MAX_ATTEMPTS: Unexpected status (HTTP $AUTH_STATUS), retrying in 2s..."
     sleep 2
   else
-    echo -e "${RED}❌ Unexpected response from /rest/me (HTTP $ME_STATUS)${NC}"
-    echo "Response: ${ME_BODY:0:200}"
+    echo -e "${RED}❌ Unexpected response from /rest/workflows (HTTP $AUTH_STATUS)${NC}"
+    echo "Response: ${AUTH_BODY:0:200}"
     exit 1
   fi
 done
