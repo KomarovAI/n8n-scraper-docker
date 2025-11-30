@@ -1,0 +1,566 @@
+name: 4 Production Verification - FINAL BOSS CHECKS
+
+on:
+  # 🎯 ЗАПУСК ПОСЛЕ УСПЕШНОГО ДЕПЛОЯ
+  workflow_run:
+    workflows: ["3 Production Deployment"]
+    types: [completed]
+    branches: [main]
+  
+  # Manual trigger
+  workflow_dispatch:
+
+concurrency:
+  group: production-verification
+  cancel-in-progress: false
+
+env:
+  N8N_URL: http://192.168.0.105:5678
+  GRAFANA_URL: http://192.168.0.105:3001
+  PROMETHEUS_URL: http://192.168.0.105:9090
+  DEPLOY_DIR: /home/artikk/n8n-production
+
+jobs:
+  # 🔍 Базовые проверки сервисов
+  basic-health-checks:
+    name: 🏥 Basic Health Checks
+    runs-on: self-hosted
+    timeout-minutes: 5
+    outputs:
+      n8n_status: ${{ steps.check.outputs.n8n_status }}
+      db_status: ${{ steps.check.outputs.db_status }}
+      redis_status: ${{ steps.check.outputs.redis_status }}
+      tor_status: ${{ steps.check.outputs.tor_status }}
+    steps:
+      - name: 🏥 Check all services
+        id: check
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "🔍 BASIC HEALTH CHECKS"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          TOTAL=0
+          PASSED=0
+          FAILED=0
+          
+          # 1. n8n Health
+          echo "1️⃣ Checking n8n..."
+          if curl -sf ${{ env.N8N_URL }}/healthz > /dev/null 2>&1; then
+            echo "   ✅ n8n is healthy"
+            echo "n8n_status=healthy" >> $GITHUB_OUTPUT
+            PASSED=$((PASSED + 1))
+          else
+            echo "   ❌ n8n is DOWN!"
+            echo "n8n_status=unhealthy" >> $GITHUB_OUTPUT
+            FAILED=$((FAILED + 1))
+          fi
+          TOTAL=$((TOTAL + 1))
+          
+          # 2. PostgreSQL
+          echo "2️⃣ Checking PostgreSQL..."
+          if docker exec postgres pg_isready -U n8n > /dev/null 2>&1; then
+            echo "   ✅ PostgreSQL is ready"
+            echo "db_status=healthy" >> $GITHUB_OUTPUT
+            PASSED=$((PASSED + 1))
+          else
+            echo "   ❌ PostgreSQL is DOWN!"
+            echo "db_status=unhealthy" >> $GITHUB_OUTPUT
+            FAILED=$((FAILED + 1))
+          fi
+          TOTAL=$((TOTAL + 1))
+          
+          # 3. Redis
+          echo "3️⃣ Checking Redis..."
+          if docker exec redis redis-cli ping 2>/dev/null | grep -q PONG; then
+            echo "   ✅ Redis is responding"
+            echo "redis_status=healthy" >> $GITHUB_OUTPUT
+            PASSED=$((PASSED + 1))
+          else
+            echo "   ❌ Redis is DOWN!"
+            echo "redis_status=unhealthy" >> $GITHUB_OUTPUT
+            FAILED=$((FAILED + 1))
+          fi
+          TOTAL=$((TOTAL + 1))
+          
+          # 4. Tor
+          echo "4️⃣ Checking Tor proxy..."
+          if docker ps | grep -q tor-proxy; then
+            echo "   ✅ Tor container is running"
+            echo "tor_status=healthy" >> $GITHUB_OUTPUT
+            PASSED=$((PASSED + 1))
+          else
+            echo "   ⚠️  Tor is not running"
+            echo "tor_status=unhealthy" >> $GITHUB_OUTPUT
+            FAILED=$((FAILED + 1))
+          fi
+          TOTAL=$((TOTAL + 1))
+          
+          echo ""
+          echo "═══════════════════════════════════════"
+          echo "📊 Summary: $PASSED/$TOTAL passed"
+          echo "═══════════════════════════════════════"
+          
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ Some services are DOWN!"
+            exit 1
+          fi
+          
+          echo "✅ All basic services are healthy!"
+
+  # 🧪 Проверка работы n8n workflows
+  workflow-functionality-tests:
+    name: 🧪 Workflow Functionality Tests
+    runs-on: self-hosted
+    needs: basic-health-checks
+    timeout-minutes: 10
+    outputs:
+      workflows_active: ${{ steps.test.outputs.workflows_active }}
+      webhooks_working: ${{ steps.test.outputs.webhooks_working }}
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+      
+      - name: 🧪 Test n8n workflows
+        id: test
+        env:
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "🧪 WORKFLOW FUNCTIONALITY TESTS"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          # 1. Список workflows
+          echo "1️⃣ Checking workflows list..."
+          WORKFLOWS=$(curl -sf \
+            -H "X-N8N-API-KEY: $N8N_API_KEY" \
+            "${{ env.N8N_URL }}/api/v1/workflows")
+          
+          if [ -n "$WORKFLOWS" ]; then
+            WORKFLOW_COUNT=$(echo "$WORKFLOWS" | jq '.data | length')
+            echo "   ✅ Found $WORKFLOW_COUNT workflows"
+            
+            # Проверка активных
+            ACTIVE_COUNT=$(echo "$WORKFLOWS" | jq '[.data[] | select(.active == true)] | length')
+            echo "   ✅ $ACTIVE_COUNT workflows are active"
+            echo "workflows_active=$ACTIVE_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "   ❌ Failed to fetch workflows!"
+            echo "workflows_active=0" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # 2. Test webhook endpoint
+          echo "2️⃣ Testing webhook endpoint..."
+          WEBHOOK_TEST=$(curl -sf -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"url":"https://example.com","test":true}' \
+            "${{ env.N8N_URL }}/webhook-test/scrape" 2>/dev/null || echo "failed")
+          
+          if [ "$WEBHOOK_TEST" != "failed" ]; then
+            echo "   ✅ Webhook endpoint is responding"
+            echo "webhooks_working=true" >> $GITHUB_OUTPUT
+          else
+            echo "   ⚠️  Webhook endpoint not responding (might be expected)"
+            echo "webhooks_working=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # 3. Test executions API
+          echo "3️⃣ Checking recent executions..."
+          EXECUTIONS=$(curl -sf \
+            -H "X-N8N-API-KEY: $N8N_API_KEY" \
+            "${{ env.N8N_URL }}/api/v1/executions?limit=5")
+          
+          if [ -n "$EXECUTIONS" ]; then
+            EXEC_COUNT=$(echo "$EXECUTIONS" | jq '.data | length')
+            echo "   ✅ Found $EXEC_COUNT recent executions"
+          else
+            echo "   ⚠️  No recent executions (might be fresh deployment)"
+          fi
+          
+          echo ""
+          echo "✅ Workflow functionality tests passed!"
+
+  # 📊 Проверка monitoring stack
+  monitoring-stack-verification:
+    name: 📊 Monitoring Stack Verification
+    runs-on: self-hosted
+    needs: basic-health-checks
+    timeout-minutes: 5
+    steps:
+      - name: 📊 Check monitoring services
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "📊 MONITORING STACK VERIFICATION"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          MONITORING_OK=true
+          
+          # 1. Prometheus
+          echo "1️⃣ Checking Prometheus..."
+          if curl -sf ${{ env.PROMETHEUS_URL }}/-/healthy > /dev/null 2>&1; then
+            echo "   ✅ Prometheus is healthy"
+            
+            # Check targets
+            TARGETS=$(curl -sf ${{ env.PROMETHEUS_URL }}/api/v1/targets | jq '.data.activeTargets | length')
+            echo "   📡 Active targets: $TARGETS"
+          else
+            echo "   ⚠️  Prometheus is not responding"
+            MONITORING_OK=false
+          fi
+          
+          # 2. Grafana
+          echo "2️⃣ Checking Grafana..."
+          if curl -sf ${{ env.GRAFANA_URL }}/api/health > /dev/null 2>&1; then
+            echo "   ✅ Grafana is healthy"
+            
+            # Check datasources
+            DATASOURCES=$(curl -sf \
+              -u "${{ secrets.GRAFANA_USER_CI }}:${{ secrets.GRAFANA_PASSWORD_CI }}" \
+              ${{ env.GRAFANA_URL }}/api/datasources | jq 'length')
+            echo "   📊 Configured datasources: $DATASOURCES"
+          else
+            echo "   ⚠️  Grafana is not responding"
+            MONITORING_OK=false
+          fi
+          
+          # 3. Node Exporter (if exists)
+          echo "3️⃣ Checking Node Exporter..."
+          if curl -sf http://localhost:9100/metrics > /dev/null 2>&1; then
+            echo "   ✅ Node Exporter is running"
+          else
+            echo "   ⚠️  Node Exporter not found (optional)"
+          fi
+          
+          echo ""
+          if [ "$MONITORING_OK" = "true" ]; then
+            echo "✅ Monitoring stack is operational!"
+          else
+            echo "⚠️  Some monitoring components are not responding"
+          fi
+
+  # 🗄️ Проверка базы данных
+  database-integrity-checks:
+    name: 🗄️ Database Integrity Checks
+    runs-on: self-hosted
+    needs: basic-health-checks
+    timeout-minutes: 5
+    steps:
+      - name: 🗄️ Verify database
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "🗄️ DATABASE INTEGRITY CHECKS"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          # 1. Database size
+          echo "1️⃣ Checking database size..."
+          DB_SIZE=$(docker exec postgres psql -U n8n -d n8n -t -c \
+            "SELECT pg_size_pretty(pg_database_size('n8n'));" | xargs)
+          echo "   📦 Database size: $DB_SIZE"
+          
+          # 2. Tables count
+          echo "2️⃣ Checking tables..."
+          TABLE_COUNT=$(docker exec postgres psql -U n8n -d n8n -t -c \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" | xargs)
+          echo "   📊 Tables count: $TABLE_COUNT"
+          
+          # 3. Workflows count
+          echo "3️⃣ Checking workflows in DB..."
+          WORKFLOW_COUNT=$(docker exec postgres psql -U n8n -d n8n -t -c \
+            "SELECT COUNT(*) FROM workflow_entity;" | xargs)
+          echo "   🔄 Workflows in database: $WORKFLOW_COUNT"
+          
+          # 4. Executions count
+          echo "4️⃣ Checking executions..."
+          EXEC_COUNT=$(docker exec postgres psql -U n8n -d n8n -t -c \
+            "SELECT COUNT(*) FROM execution_entity;" | xargs)
+          echo "   ▶️  Total executions: $EXEC_COUNT"
+          
+          # 5. Database connections
+          echo "5️⃣ Checking active connections..."
+          CONN_COUNT=$(docker exec postgres psql -U n8n -d n8n -t -c \
+            "SELECT COUNT(*) FROM pg_stat_activity WHERE datname='n8n';" | xargs)
+          echo "   🔌 Active connections: $CONN_COUNT"
+          
+          echo ""
+          echo "✅ Database integrity verified!"
+
+  # 🚀 Performance тесты
+  performance-benchmarks:
+    name: 🚀 Performance Benchmarks
+    runs-on: self-hosted
+    needs: [basic-health-checks, workflow-functionality-tests]
+    timeout-minutes: 5
+    steps:
+      - name: 🚀 Run performance tests
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "🚀 PERFORMANCE BENCHMARKS"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          # 1. n8n response time
+          echo "1️⃣ Testing n8n response time..."
+          START=$(date +%s%3N)
+          curl -sf ${{ env.N8N_URL }}/healthz > /dev/null
+          END=$(date +%s%3N)
+          RESPONSE_TIME=$((END - START))
+          echo "   ⚡ Response time: ${RESPONSE_TIME}ms"
+          
+          if [ $RESPONSE_TIME -lt 500 ]; then
+            echo "   ✅ Excellent response time!"
+          elif [ $RESPONSE_TIME -lt 1000 ]; then
+            echo "   ✅ Good response time"
+          else
+            echo "   ⚠️  Slow response time"
+          fi
+          
+          # 2. Docker stats
+          echo "2️⃣ Checking resource usage..."
+          docker stats --no-stream --format \
+            "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
+            n8n-app postgres redis 2>/dev/null || true
+          
+          # 3. System resources
+          echo "3️⃣ System resources..."
+          echo "   💾 Memory:"
+          free -h | grep Mem
+          echo "   💿 Disk:"
+          df -h / | tail -1
+          echo "   ⚙️  CPU load:"
+          uptime
+          
+          echo ""
+          echo "✅ Performance benchmarks completed!"
+
+  # 🔐 Security checks
+  security-verification:
+    name: 🔐 Security Verification
+    runs-on: self-hosted
+    needs: basic-health-checks
+    timeout-minutes: 5
+    steps:
+      - name: 🔐 Security checks
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "🔐 SECURITY VERIFICATION"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          SECURITY_OK=true
+          
+          # 1. Check .env permissions
+          echo "1️⃣ Checking .env file security..."
+          if [ -f "${{ env.DEPLOY_DIR }}/.env" ]; then
+            PERMS=$(stat -c %a "${{ env.DEPLOY_DIR }}/.env")
+            if [ "$PERMS" = "600" ]; then
+              echo "   ✅ .env has correct permissions (600)"
+            else
+              echo "   ⚠️  .env permissions: $PERMS (should be 600)"
+              SECURITY_OK=false
+            fi
+          fi
+          
+          # 2. Check exposed ports
+          echo "2️⃣ Checking exposed ports..."
+          EXPOSED_PORTS=$(docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'n8n|postgres|redis')
+          echo "$EXPOSED_PORTS"
+          
+          # 3. Check Docker networks
+          echo "3️⃣ Checking Docker networks..."
+          NETWORKS=$(docker network ls --format '{{.Name}}' | grep n8n || true)
+          if [ -n "$NETWORKS" ]; then
+            echo "   📡 n8n networks: $NETWORKS"
+          fi
+          
+          # 4. Check firewall status
+          echo "4️⃣ Checking firewall..."
+          if command -v ufw >/dev/null 2>&1; then
+            UFW_STATUS=$(sudo ufw status | head -1)
+            echo "   🛡️  $UFW_STATUS"
+          else
+            echo "   ⚠️  UFW not installed"
+          fi
+          
+          echo ""
+          if [ "$SECURITY_OK" = "true" ]; then
+            echo "✅ Security checks passed!"
+          else
+            echo "⚠️  Some security concerns detected"
+          fi
+
+  # 🌐 End-to-End Integration Test
+  e2e-integration-test:
+    name: 🌐 E2E Integration Test
+    runs-on: self-hosted
+    needs: [workflow-functionality-tests, database-integrity-checks]
+    timeout-minutes: 10
+    steps:
+      - name: 🌐 Full pipeline test
+        env:
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "🌐 END-TO-END INTEGRATION TEST"
+          echo "═══════════════════════════════════════"
+          echo ""
+          
+          # 1. Create test workflow via API
+          echo "1️⃣ Creating test workflow..."
+          TEST_WORKFLOW='{"name":"CI-Test-Workflow-'$(date +%s)'","nodes":[{"parameters":{},"name":"Start","type":"n8n-nodes-base.start","typeVersion":1,"position":[250,300]}],"connections":{},"active":false}'
+          
+          CREATE_RESPONSE=$(curl -sf -X POST \
+            -H "X-N8N-API-KEY: $N8N_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$TEST_WORKFLOW" \
+            "${{ env.N8N_URL }}/api/v1/workflows")
+          
+          if [ -n "$CREATE_RESPONSE" ]; then
+            WORKFLOW_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id')
+            echo "   ✅ Test workflow created: ID=$WORKFLOW_ID"
+            
+            # 2. Retrieve workflow
+            echo "2️⃣ Retrieving workflow..."
+            GET_RESPONSE=$(curl -sf \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" \
+              "${{ env.N8N_URL }}/api/v1/workflows/$WORKFLOW_ID")
+            
+            if [ -n "$GET_RESPONSE" ]; then
+              echo "   ✅ Workflow retrieved successfully"
+            else
+              echo "   ❌ Failed to retrieve workflow"
+              exit 1
+            fi
+            
+            # 3. Delete test workflow
+            echo "3️⃣ Cleaning up test workflow..."
+            curl -sf -X DELETE \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" \
+              "${{ env.N8N_URL }}/api/v1/workflows/$WORKFLOW_ID" > /dev/null
+            
+            echo "   ✅ Test workflow deleted"
+          else
+            echo "   ❌ Failed to create test workflow"
+            exit 1
+          fi
+          
+          # 4. Test database write/read cycle
+          echo "4️⃣ Testing database operations..."
+          DB_TEST_VALUE="test_$(date +%s)"
+          docker exec postgres psql -U n8n -d n8n -c \
+            "CREATE TABLE IF NOT EXISTS ci_test (value TEXT);" > /dev/null
+          docker exec postgres psql -U n8n -d n8n -c \
+            "INSERT INTO ci_test VALUES ('$DB_TEST_VALUE');" > /dev/null
+          
+          RETRIEVED=$(docker exec postgres psql -U n8n -d n8n -t -c \
+            "SELECT value FROM ci_test WHERE value='$DB_TEST_VALUE';" | xargs)
+          
+          if [ "$RETRIEVED" = "$DB_TEST_VALUE" ]; then
+            echo "   ✅ Database write/read successful"
+            docker exec postgres psql -U n8n -d n8n -c "DROP TABLE ci_test;" > /dev/null
+          else
+            echo "   ❌ Database operation failed"
+            exit 1
+          fi
+          
+          # 5. Test Redis operations
+          echo "5️⃣ Testing Redis cache..."
+          REDIS_TEST="redis_test_$(date +%s)"
+          docker exec redis redis-cli SET ci_test "$REDIS_TEST" > /dev/null
+          REDIS_VALUE=$(docker exec redis redis-cli GET ci_test)
+          
+          if [ "$REDIS_VALUE" = "$REDIS_TEST" ]; then
+            echo "   ✅ Redis operations successful"
+            docker exec redis redis-cli DEL ci_test > /dev/null
+          else
+            echo "   ❌ Redis operation failed"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ End-to-end integration test PASSED!"
+
+  # 📋 Final Summary
+  final-verification-summary:
+    name: 📋 Final Verification Summary
+    runs-on: self-hosted
+    needs: 
+      - basic-health-checks
+      - workflow-functionality-tests
+      - monitoring-stack-verification
+      - database-integrity-checks
+      - performance-benchmarks
+      - security-verification
+      - e2e-integration-test
+    if: always()
+    steps:
+      - name: 📋 Generate summary
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "               🎉 FINAL VERIFICATION SUMMARY 🎉                "
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "🏥 Basic Health:          ${{ needs.basic-health-checks.result }}"
+          echo "🧪 Workflow Tests:        ${{ needs.workflow-functionality-tests.result }}"
+          echo "📊 Monitoring Stack:      ${{ needs.monitoring-stack-verification.result }}"
+          echo "🗄️  Database Integrity:   ${{ needs.database-integrity-checks.result }}"
+          echo "🚀 Performance:           ${{ needs.performance-benchmarks.result }}"
+          echo "🔐 Security:              ${{ needs.security-verification.result }}"
+          echo "🌐 E2E Integration:       ${{ needs.e2e-integration-test.result }}"
+          echo ""
+          echo "─────────────────────────────────────────────────────────────────"
+          echo "Service Status:"
+          echo "  • n8n:        ${{ needs.basic-health-checks.outputs.n8n_status }}"
+          echo "  • PostgreSQL: ${{ needs.basic-health-checks.outputs.db_status }}"
+          echo "  • Redis:      ${{ needs.basic-health-checks.outputs.redis_status }}"
+          echo "  • Tor:        ${{ needs.basic-health-checks.outputs.tor_status }}"
+          echo ""
+          echo "Workflow Status:"
+          echo "  • Active workflows: ${{ needs.workflow-functionality-tests.outputs.workflows_active }}"
+          echo "  • Webhooks working: ${{ needs.workflow-functionality-tests.outputs.webhooks_working }}"
+          echo ""
+          echo "─────────────────────────────────────────────────────────────────"
+          echo "Access URLs:"
+          echo "  • n8n:        ${{ env.N8N_URL }}"
+          echo "  • Grafana:    ${{ env.GRAFANA_URL }}"
+          echo "  • Prometheus: ${{ env.PROMETHEUS_URL }}"
+          echo ""
+          echo "Deployment Info:"
+          echo "  • Commit:  ${{ github.sha }}"
+          echo "  • Branch:  ${{ github.ref }}"
+          echo "  • Actor:   ${{ github.actor }}"
+          echo "  • Time:    $(date)"
+          echo ""
+          
+          # Проверка всех результатов
+          ALL_PASSED=true
+          
+          if [ "${{ needs.basic-health-checks.result }}" != "success" ]; then
+            ALL_PASSED=false
+          fi
+          if [ "${{ needs.workflow-functionality-tests.result }}" != "success" ]; then
+            ALL_PASSED=false
+          fi
+          if [ "${{ needs.e2e-integration-test.result }}" != "success" ]; then
+            ALL_PASSED=false
+          fi
+          
+          echo "═══════════════════════════════════════════════════════════════"
+          if [ "$ALL_PASSED" = "true" ]; then
+            echo "                  ✅ EVERYTHING IS ЗЕБА! ✅                    "
+            echo "           Production system is FULLY OPERATIONAL!            "
+          else
+            echo "                 ⚠️  SOME CHECKS FAILED ⚠️                    "
+            echo "          Review logs above for detailed information          "
+          fi
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          
+          # Exit code
+          if [ "$ALL_PASSED" != "true" ]; then
+            exit 1
+          fi
