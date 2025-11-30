@@ -1,6 +1,17 @@
-# CI Override Configuration
-# This file is composed with docker-compose.yml in CI to force usage of built image
-# Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml up
+# ==========================================
+# Docker Compose Override for CI/CD
+# ==========================================
+# Этот файл переопределяет настройки docker-compose.yml
+# для использования в CI/CD окружении.
+#
+# Использование:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+#
+# Цель:
+#   - CI использует кастомный n8n-enhanced:test
+#   - Production использует n8nio/n8n:latest
+#   - Чистое разделение CI/Production конфигов
+# ==========================================
 
 services:
   postgres:
@@ -15,7 +26,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 60s  # Увеличено с 20s
     restart: unless-stopped
 
   redis:
@@ -30,10 +41,14 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # n8n: CI override для использования кастомного образа
   n8n:
-    # Override image to use locally built n8n-enhanced:test in CI
-    # This ensures CI uses the image built by workflow (with custom scripts)
-    # instead of pulling n8nio/n8n:latest from Docker Hub
+    # Переопределение образа:
+    # - Production (docker-compose.yml): n8nio/n8n:latest
+    # - CI (docker-compose.ci.yml): n8n-enhanced:test
+    # 
+    # Причина: CI собирает кастомный образ с дополнительными скриптами,
+    # но docker-compose.yml не должен зависеть от CI логики.
     image: n8n-enhanced:test
     container_name: n8n-app
     depends_on:
@@ -44,19 +59,25 @@ services:
     ports:
       - "5678:5678"
     environment:
-      # ⚠️ n8n 1.x USES USER MANAGEMENT (NOT Basic Auth!)
+      # ==========================================
+      # n8n 1.x USER MANAGEMENT (НЕ Basic Auth!)
+      # ==========================================
+      # ВАЖНО: n8n 1.0+ удалил Basic Auth полностью!
       # 
-      # Official docs: https://docs.n8n.io/1-0-migration-checklist/
-      # "removes support for other authentication methods, such as BasicAuth"
+      # Официальная документация:
+      # https://docs.n8n.io/1-0-migration-checklist/
+      # "полностью удалена поддержка Basic Auth"
       # 
-      # Authentication in n8n 1.121.3:
-      #   1. Owner created via POST /rest/owner/setup
-      #   2. Authentication via cookie (n8n-auth)
-      #   3. NO Basic Auth support!
+      # Аутентификация в n8n 1.121.3:
+      #   1. POST /rest/owner/setup - создание owner account
+      #   2. Cookie: n8n-auth - session аутентификация
+      #   3. POST /rest/login - альтернативный вход
       # 
-      # N8N_BASIC_AUTH_* variables REMOVED - they have NO EFFECT in n8n >= 1.0
+      # N8N_BASIC_AUTH_* переменные НЕ ИСПОЛЬЗУЮТСЯ!
+      # Они полностью игнорируются n8n >= 1.0
+      # ==========================================
       
-      # Database settings
+      # Database настройки
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
@@ -64,18 +85,22 @@ services:
       DB_POSTGRESDB_USER: scraper_user
       DB_POSTGRESDB_PASSWORD: test_password_postgres_123
       
-      # n8n settings
+      # n8n настройки
       N8N_METRICS: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "true"
+      
+      # CI-специфичное логирование
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
       interval: 15s
       timeout: 10s
-      retries: 6
-      start_period: 120s
+      retries: 10  # Увеличено с 6
+      start_period: 180s  # Увеличено с 120s (миграции БД + auth)
     restart: unless-stopped
 
 networks:
