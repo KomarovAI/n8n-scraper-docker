@@ -61,7 +61,11 @@ jobs:
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           
-          # n8n API Authentication (Official Method)
+          # n8n Owner Setup (Automated)
+          N8N_USER=${{ secrets.N8N_USER }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD }}
+          
+          # n8n API Authentication (Manual - created once)
           N8N_API_KEY=${{ secrets.N8N_API_KEY }}
           
           # Tor Control
@@ -209,6 +213,8 @@ jobs:
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          N8N_USER=${{ secrets.N8N_USER }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD }}
           N8N_API_KEY=${{ secrets.N8N_API_KEY }}
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
@@ -237,6 +243,23 @@ jobs:
           done
           docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
           exit 1
+      
+      - name: 🔧 Setup n8n owner (Automated - Best Practice)
+        env:
+          N8N_URL: "http://localhost:5678"
+          N8N_USER: ${{ secrets.N8N_USER }}
+          N8N_PASSWORD: ${{ secrets.N8N_PASSWORD }}
+        run: |
+          chmod +x scripts/setup-n8n-owner.sh
+          bash scripts/setup-n8n-owner.sh
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Owner setup failed"
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n
+            exit $EXIT_CODE
+          fi
+        timeout-minutes: 3
+        continue-on-error: false
       
       - name: 📦 Initialize workflows with N8N API Key (Official Method)
         env:
@@ -441,13 +464,17 @@ jobs:
           
           ---
           
-          **✅ IMPROVEMENTS APPLIED**:
-          - Switched from cookie auth to N8N API Key (official method)
-          - Stateless authentication (no session expiry)
-          - Single unified script for import + reactivation
-          - Simpler error handling
+          **✅ BEST PRACTICES APPLIED**:
+          - Hybrid approach: automated owner + manual API key
+          - Idempotent operations (safe to re-run)
+          - Based on community recommendations
+          - Production-ready setup
           
-          **Authentication Method**: X-N8N-API-KEY header
+          **Authentication Flow**:
+          1. Automated owner setup (if not exists)
+          2. API Key authentication (created once)
+          3. Workflow import + reactivation
+          
           **Documentation**: https://docs.n8n.io/api/authentication/
           EOF
           
