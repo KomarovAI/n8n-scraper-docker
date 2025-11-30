@@ -7,7 +7,7 @@
         "httpMethod": "POST",
         "path": "scrape",
         "authentication": "none",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {}
       },
       "name": "Webhook",
@@ -53,16 +53,62 @@
       "position": [
         650,
         300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.statusCode || 0}}",
+              "operation": "equal",
+              "value2": 200
+            }
+          ]
+        }
+      },
+      "name": "Check HTTP Success",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        850,
+        300
       ]
     },
     {
       "parameters": {
-        "functionCode": "// Extract content from HTML\nconst html = $input.item.body;\nconst url = $input.item.json.url;\nconst requestId = $input.item.json.requestId;\n\ntry {\n  // Extract title\n  const titleMatch = /<title>(.*?)<\\/title>/i.exec(html);\n  const title = titleMatch ? titleMatch[1] : '';\n  \n  // Extract main content\n  const mainRegex = /<main.*?>([\\s\\S]+?)<\\/main>/i;\n  const articleRegex = /<article.*?>([\\s\\S]+?)<\\/article>/i;\n  const bodyRegex = /<body.*?>([\\s\\S]+?)<\\/body>/i;\n  \n  let mainContent = mainRegex.exec(html)?.[1] || \n                    articleRegex.exec(html)?.[1] || \n                    bodyRegex.exec(html)?.[1] || \n                    html;\n  \n  // Clean content\n  mainContent = mainContent\n    .replace(/<script[^>]*>.*?<\\/script>/gis, '')\n    .replace(/<style[^>]*>.*?<\\/style>/gis, '')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .substring(0, 50000);\n  \n  return {\n    json: {\n      success: true,\n      url,\n      requestId,\n      timestamp: new Date().toISOString(),\n      data: {\n        title,\n        content: mainContent,\n        content_length: mainContent.length,\n        html_length: html.length\n      }\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      success: false,\n      url,\n      requestId,\n      error: error.message,\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+        "functionCode": "// Extract content from HTML\n// FIXED: Correct access to HTTP Request response\nconst httpResponse = $input.item.json;\nconst html = httpResponse.body || '';\nconst url = $('Input Validator').item.json.url;\nconst requestId = $('Input Validator').item.json.requestId;\n\ntry {\n  // Extract title\n  const titleMatch = /<title>(.*?)<\\/title>/i.exec(html);\n  const title = titleMatch ? titleMatch[1] : '';\n  \n  // Extract main content\n  const mainRegex = /<main.*?>([\\s\\S]+?)<\\/main>/i;\n  const articleRegex = /<article.*?>([\\s\\S]+?)<\\/article>/i;\n  const bodyRegex = /<body.*?>([\\s\\S]+?)<\\/body>/i;\n  \n  let mainContent = mainRegex.exec(html)?.[1] || \n                    articleRegex.exec(html)?.[1] || \n                    bodyRegex.exec(html)?.[1] || \n                    html;\n  \n  // Clean content\n  mainContent = mainContent\n    .replace(/<script[^>]*>.*?<\\/script>/gis, '')\n    .replace(/<style[^>]*>.*?<\\/style>/gis, '')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .substring(0, 50000);\n  \n  return {\n    json: {\n      success: true,\n      url,\n      requestId,\n      timestamp: new Date().toISOString(),\n      data: {\n        title,\n        content: mainContent,\n        content_length: mainContent.length,\n        html_length: html.length\n      }\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      success: false,\n      url,\n      requestId,\n      error: error.message,\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
       },
       "name": "Extract Content",
       "type": "n8n-nodes-base.code",
       "position": [
-        850,
+        1050,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format error response\nconst url = $('Input Validator').item.json.url;\nconst requestId = $('Input Validator').item.json.requestId;\nconst statusCode = $input.item.json.statusCode || 0;\nconst statusMessage = $input.item.json.statusMessage || 'Unknown error';\n\nreturn {\n  json: {\n    success: false,\n    url,\n    requestId,\n    timestamp: new Date().toISOString(),\n    error: {\n      type: 'HTTP_ERROR',\n      status: statusCode,\n      message: statusMessage\n    }\n  }\n};"
+      },
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1050,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": "={{$json.success === true ? 200 : 400}}"
+        }
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        1250,
         300
       ]
     }
@@ -94,7 +140,47 @@
       "main": [
         [
           {
+            "node": "Check HTTP Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check HTTP Success": {
+      "main": [
+        [
+          {
             "node": "Extract Content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Content": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
             "type": "main",
             "index": 0
           }
