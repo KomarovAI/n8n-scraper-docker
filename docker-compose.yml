@@ -35,6 +35,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   # TOR proxy for anonymity
@@ -72,7 +73,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 180s  # Increased from 60s - allows time for model downloads
+      start_period: 180s
     restart: unless-stopped
     deploy:
       resources:
@@ -81,9 +82,8 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    # Note: GPU is optional, CPU-only works fine for smaller models
 
-  # ML Service for scraping strategy selection
+  # ML Service for scraping strategy selection (OPTIONAL)
   ml-service:
     build:
       context: ./ml
@@ -110,7 +110,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s  # Increased from 40s - classifier training + Ollama connection
+      start_period: 120s
     restart: unless-stopped
 
   # Node Exporter for system metrics (CPU, RAM, Disk)
@@ -201,27 +201,33 @@ services:
     restart: unless-stopped
 
   # n8n workflow automation
+  # ВАЖНО: n8n 1.x использует User Management (НЕ Basic Auth!)
+  # Аутентификация через POST /rest/owner/setup + cookie session
+  # Документация: https://docs.n8n.io/1-0-migration-checklist/
   n8n:
-    image: n8nio/n8n:latest
+    image: ${N8N_IMAGE:-n8nio/n8n:latest}
     container_name: n8n-app
     ports:
       - "5678:5678"
     environment:
-      N8N_BASIC_AUTH_ACTIVE: true
-      N8N_BASIC_AUTH_USER: ${N8N_USER:?N8N_USER must be set in .env file}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:?N8N_PASSWORD must be set in .env file}
+      # Database configuration
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-scraper_db}
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-scraper_user}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      # Execution settings
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: true
+      
+      # Monitoring
       N8N_METRICS: true
       N8N_DIAGNOSTICS_ENABLED: false
-      # ML Service endpoint for n8n (optional)
+      
+      # Optional: ML Service endpoint
       ML_SERVICE_URL: http://ml-service:8000
     volumes:
       - n8n-data:/home/node/.n8n
@@ -231,13 +237,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      # ml-service removed - it's optional!
+      # ML-сервис НЕ критичен для запуска n8n!
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:5678/healthz"]
-      interval: 30s
+      interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 90s  # Increased from 40s - allows time for DB migrations
+      retries: 10
+      start_period: 180s
     restart: unless-stopped
 
 volumes:
