@@ -219,9 +219,6 @@ for workflow_file in "$WORKFLOWS_DIR"/*.json; do
   sleep 0.5
 done
 
-# Cleanup cookie file
-rm -f "$COOKIE_FILE"
-
 echo ""
 echo "═══════════════════════════════════════════"
 echo "📊 Import Summary"
@@ -231,8 +228,53 @@ echo -e "  Imported: ${GREEN}$IMPORTED${NC}"
 echo -e "  Failed:   ${RED}$FAILED${NC}"
 echo ""
 
+# ══════════════════════════════════════════════════════════════════
+# WEBHOOK REGISTRATION VERIFICATION
+# Source: https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/#activation
+# "After activating a workflow, n8n needs time to register webhooks"
+# ══════════════════════════════════════════════════════════════════
+
+if [ $FAILED -eq 0 ] && [ $IMPORTED -gt 0 ]; then
+  echo "🔍 Verifying webhook endpoints registration..."
+  echo "───────────────────────────────────────────"
+  
+  MAX_WEBHOOK_WAIT=30
+  WEBHOOK_CHECK_INTERVAL=2
+  WEBHOOK_READY=false
+  
+  for ((i=1; i<=MAX_WEBHOOK_WAIT/WEBHOOK_CHECK_INTERVAL; i++)); do
+    # Проверяем активные webhook workflows через API
+    ACTIVE_WEBHOOKS=$(curl -s -b "$COOKIE_FILE" "${N8N_URL}/rest/workflows" 2>/dev/null | \
+      grep -o '"active":true' | wc -l || echo 0)
+    
+    if [ "$ACTIVE_WEBHOOKS" -ge 1 ]; then
+      echo -e "${GREEN}✅ Webhook endpoints registered ($ACTIVE_WEBHOOKS active workflows)${NC}"
+      WEBHOOK_READY=true
+      
+      # Дополнительный буфер для полной инициализации
+      echo "⏳ Waiting 3 seconds for complete webhook initialization..."
+      sleep 3
+      break
+    fi
+    
+    if [ $i -eq $((MAX_WEBHOOK_WAIT/WEBHOOK_CHECK_INTERVAL)) ]; then
+      echo -e "${YELLOW}⚠️  Webhook registration timeout after ${MAX_WEBHOOK_WAIT}s${NC}"
+      echo "   Proceeding anyway - first tests may fail"
+    else
+      echo "   Attempt $i/$((MAX_WEBHOOK_WAIT/WEBHOOK_CHECK_INTERVAL)): Waiting for webhook registration..."
+    fi
+    
+    sleep $WEBHOOK_CHECK_INTERVAL
+  done
+  
+  echo ""
+fi
+
+# Cleanup cookie file
+rm -f "$COOKIE_FILE"
+
 if [ $FAILED -eq 0 ]; then
-  echo -e "${GREEN}🎉 All workflows imported successfully!${NC}"
+  echo -e "${GREEN}🎉 All workflows imported and activated successfully!${NC}"
   exit 0
 else
   echo -e "${RED}⚠️  Some workflows failed to import!${NC}"
