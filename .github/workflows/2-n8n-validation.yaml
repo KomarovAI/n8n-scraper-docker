@@ -1,4 +1,4 @@
-name: 2 n8n Validation (Optimized)
+name: 2 n8n Validation (Self-Hosted)
 
 on:
   # 🔥 АВТОМАТИЧЕСКИЙ ЗАПУСК ПАРАЛЛЕЛЬНО С WORKFLOW 1
@@ -24,7 +24,7 @@ env:
 jobs:
   essential-tests:
     name: Essential Tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # ← ТВОЙpostMessage RUNNER artikk!
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -39,20 +39,6 @@ jobs:
       - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
-      
-      - name: 🔧 Setup Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: 🏭 Build image (fast cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile.n8n-enhanced
-          tags: n8n-enhanced:test
-          load: true
-          cache-from: |
-            type=gha,scope=buildkit-n8n-${{ github.ref_name }}
-            type=gha,scope=buildkit-n8n-main
       
       - name: 📝 Create .env from secrets
         run: |
@@ -81,9 +67,16 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
+      - name: 🏭 Build image (with cache)
+        run: |
+          docker build \
+            -t n8n-enhanced:test \
+            -f Dockerfile.n8n-enhanced \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            .
+      
       - name: 🚀 Start services
         run: |
-          # Use CI override to force n8n-enhanced:test image
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
           sleep 12
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d ${{ matrix.test.services }}
@@ -115,7 +108,6 @@ jobs:
         id: test
         run: |
           chmod +x ${{ matrix.test.script }}
-          # OPTIMIZATION: Direct stdout/stderr, no intermediate file
           bash ${{ matrix.test.script }}
         continue-on-error: true
       
@@ -127,7 +119,6 @@ jobs:
           START_TIME=${{ steps.timer.outputs.start_time }}
           DURATION=$((END_TIME - START_TIME))
           
-          # Save only metrics (no logs!)
           jq -n \
             --arg job "essential-${{ matrix.test.slug }}" \
             --arg test_name "${{ matrix.test.name }}" \
@@ -149,7 +140,6 @@ jobs:
       - name: 📋 Save n8n logs on failure
         if: failure()
         run: |
-          # OPTIMIZATION: Logs ONLY on failure, gzipped
           docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/essential-${{ matrix.test.slug }}-n8n.log.gz
       
       - name: 📤 Upload metrics
@@ -158,7 +148,7 @@ jobs:
         with:
           name: metrics-essential-${{ matrix.test.slug }}
           path: ${{ env.LOGS_DIR }}/*.json
-          retention-days: 3  # OPTIMIZATION: 3 days instead of 7
+          retention-days: 3
           compression-level: 9
       
       - name: 📤 Upload logs on failure
@@ -168,7 +158,7 @@ jobs:
           name: logs-essential-${{ matrix.test.slug }}
           path: ${{ env.LOGS_DIR }}/*.log.gz
           retention-days: 3
-          compression-level: 0  # already gzipped
+          compression-level: 0
       
       - name: 🧹 Cleanup
         if: always()
@@ -179,8 +169,8 @@ jobs:
 
   n8n-workflow-tests:
     name: n8n Workflow Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15  # Increased from 10 to 15 for webhook initialization
+    runs-on: self-hosted  # ← ТВОЙ RUNNER artikk!
+    timeout-minutes: 15
     outputs:
       duration: ${{ steps.save.outputs.duration }}
       passed: ${{ steps.parse.outputs.PASSED }}
@@ -193,20 +183,6 @@ jobs:
       - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
-      
-      - name: 🔧 Setup Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: 🏭 Build image (fast cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile.n8n-enhanced
-          tags: n8n-enhanced:test
-          load: true
-          cache-from: |
-            type=gha,scope=buildkit-n8n-${{ github.ref_name }}
-            type=gha,scope=buildkit-n8n-main
       
       - name: 📝 Create .env from secrets
         run: |
@@ -222,9 +198,16 @@ jobs:
           EOF
           echo "✅ .env file created from GitHub Secrets"
       
+      - name: 🏭 Build image (with cache)
+        run: |
+          docker build \
+            -t n8n-enhanced:test \
+            -f Dockerfile.n8n-enhanced \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            .
+      
       - name: 🚀 Start n8n stack
         run: |
-          # Use CI override to force n8n-enhanced:test image
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
           sleep 12
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d n8n
@@ -244,7 +227,7 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n
           exit 1
       
-      - name: 🔧 Setup n8n owner (Automated - Best Practice)
+      - name: 🔧 Setup n8n owner (Automated)
         env:
           N8N_URL: "http://localhost:5678"
           N8N_USER: ${{ secrets.N8N_USER_CI }}
@@ -261,7 +244,7 @@ jobs:
         timeout-minutes: 3
         continue-on-error: false
       
-      - name: 📦 Initialize workflows with N8N API Key (Official Method)
+      - name: 📦 Initialize workflows with API Key
         env:
           N8N_URL: "http://localhost:5678"
           N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
@@ -294,8 +277,8 @@ jobs:
         id: test
         env:
           N8N_URL: "http://localhost:5678"
-          N8N_USER: "" # Not needed with API Key
-          N8N_PASSWORD: "" # Not needed with API Key
+          N8N_USER: ""
+          N8N_PASSWORD: ""
           WEBHOOK_PATH: "/webhook/scrape"
           TEST_TIMEOUT: "30"
           REPORT_FILE: "${{ env.LOGS_DIR }}/workflow-results.json"
@@ -343,7 +326,6 @@ jobs:
           echo "failed=${{ steps.parse.outputs.FAILED }}" >> $GITHUB_OUTPUT
           echo "success_rate=${{ steps.parse.outputs.SUCCESS_RATE }}" >> $GITHUB_OUTPUT
           
-          # Consolidated metric
           jq -n \
             --arg job "n8n-workflows" \
             --arg status "${{ job.status }}" \
@@ -369,7 +351,6 @@ jobs:
       - name: 📋 Save n8n logs on failure
         if: failure()
         run: |
-          # OPTIMIZATION: Logs ONLY on failure, gzipped
           docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=300 n8n | gzip > ${{ env.LOGS_DIR }}/workflows-n8n.log.gz
       
       - name: 📤 Upload metrics
@@ -399,7 +380,7 @@ jobs:
 
   summary:
     name: n8n Validation Summary
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # ← ТВОЙ RUNNER artikk!
     needs: [essential-tests, n8n-workflow-tests]
     if: always()
     steps:
@@ -418,10 +399,8 @@ jobs:
         run: |
           mkdir -p final-report
           
-          # Merge all JSON metrics into single array
           jq -s '.' metrics/*.json > final-report/validation-report.json 2>/dev/null || echo '[]' > final-report/validation-report.json
           
-          # Parse actual test results from validation-report.json
           HEALTH_EXIT=$(jq -r '.[] | select(.job == "essential-health") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
           HEALTH_DURATION=$(jq -r '.[] | select(.job == "essential-health") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
           
@@ -431,7 +410,6 @@ jobs:
           N8N_EXIT=$(jq -r '.[] | select(.job == "n8n-workflows") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
           N8N_DURATION=$(jq -r '.[] | select(.job == "n8n-workflows") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
           
-          # Emoji mapping function
           get_emoji() {
             case "$1" in
               "success") echo "✅" ;;
@@ -446,9 +424,8 @@ jobs:
           WORKFLOW_EMOJI=$(get_emoji "$WORKFLOW_EXIT")
           N8N_EMOJI=$(get_emoji "$N8N_EXIT")
           
-          # Generate accurate markdown summary with emoji
           cat > final-report/summary.md << EOF
-          # n8n Validation Summary
+          # n8n Validation Summary (Self-Hosted Runner)
           
           **Test Results**:
           - Essential Health: $HEALTH_EMOJI **$HEALTH_EXIT** (${HEALTH_DURATION}s)
@@ -460,32 +437,22 @@ jobs:
           - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
           - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
           
+          **Runner Info**:
+          - Type: Self-Hosted (artikk)
+          - Location: 192.168.0.105
+          - OS: Ubuntu 22.04.5 LTS
+          - Benefits: Faster execution, persistent cache, local access
+          
           **Full metrics**: See \`validation-report.json\`
-          
-          ---
-          
-          **✅ BEST PRACTICES APPLIED**:
-          - Hybrid approach: automated owner + manual API key
-          - Using existing secrets: N8N_USER_CI, N8N_PASSWORD_CI
-          - Only N8N_API_KEY needs manual creation
-          - Production-ready setup
-          
-          **Authentication Flow**:
-          1. Automated owner setup (using N8N_USER_CI, N8N_PASSWORD_CI)
-          2. API Key authentication (N8N_API_KEY - create once)
-          3. Workflow import + reactivation
-          
-          **Documentation**: https://docs.n8n.io/api/authentication/
           EOF
           
-          # Print for GitHub Actions UI
           echo "====================================="
           echo "📊 n8n VALIDATION SUMMARY"
           echo "====================================="
           cat final-report/summary.md
           echo ""
           echo "====================================="
-          echo "📊 DETAILED METRICS (validation-report.json)"
+          echo "📊 DETAILED METRICS"
           echo "====================================="
           jq '.' final-report/validation-report.json
       
@@ -494,7 +461,7 @@ jobs:
         with:
           name: n8n-validation-summary
           path: final-report/
-          retention-days: 7  # Only summary kept for 7 days
+          retention-days: 7
           compression-level: 9
       
       - name: 🧹 Cleanup intermediate artifacts
