@@ -1,0 +1,382 @@
+name: 3 Production Deployment
+
+on:
+  # 🎯 ЗАПУСК ПОСЛЕ УСПЕШНОГО WORKFLOW 2
+  workflow_run:
+    workflows: ["2 n8n Validation (Self-Hosted)"]
+    types: [completed]
+    branches: [main]
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip health checks after deployment'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false  # Не прерывать деплой!
+
+env:
+  DEPLOY_DIR: /home/artikk/n8n-production
+  BACKUP_DIR: /home/artikk/n8n-backups
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  # Проверка условий деплоя
+  check-deployment-conditions:
+    name: Check Deployment Conditions
+    runs-on: self-hosted
+    outputs:
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+      validation_status: ${{ steps.check.outputs.validation_status }}
+    steps:
+      - name: 🔍 Check workflow trigger
+        id: check
+        run: |
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          
+          # Ручной запуск - всегда деплоим
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "validation_status=manual" >> $GITHUB_OUTPUT
+            echo "✅ Manual deployment triggered"
+            exit 0
+          fi
+          
+          # Автоматический запуск - проверяем статус валидации
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "validation_status=success" >> $GITHUB_OUTPUT
+            echo "✅ Validation passed, proceeding with deployment"
+          else
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "validation_status=failed" >> $GITHUB_OUTPUT
+            echo "❌ Validation failed, skipping deployment"
+          fi
+
+  # Бэкап текущей версии
+  backup-current-deployment:
+    name: Backup Current Deployment
+    runs-on: self-hosted
+    needs: check-deployment-conditions
+    if: needs.check-deployment-conditions.outputs.should_deploy == 'true'
+    steps:
+      - name: 💾 Create backup
+        run: |
+          echo "💾 Creating backup of current deployment..."
+          
+          # Создать директорию бэкапов
+          mkdir -p ${{ env.BACKUP_DIR }}
+          
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          BACKUP_NAME="n8n-backup-${TIMESTAMP}"
+          
+          # Бэкап базы данных
+          if docker ps | grep -q postgres; then
+            echo "📦 Backing up PostgreSQL database..."
+            docker exec postgres pg_dump -U n8n n8n > "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
+            gzip "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
+            echo "✅ Database backup created: ${BACKUP_NAME}.sql.gz"
+          else
+            echo "⚠️  PostgreSQL container not running, skipping DB backup"
+          fi
+          
+          # Бэкап .env файла
+          if [ -f "${{ env.DEPLOY_DIR }}/.env" ]; then
+            cp "${{ env.DEPLOY_DIR }}/.env" "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.env"
+            echo "✅ .env file backed up"
+          fi
+          
+          # Удалить старые бэкапы (оставить последние 5)
+          cd ${{ env.BACKUP_DIR }}
+          ls -t n8n-backup-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm
+          echo "🧹 Old backups cleaned up (keeping last 5)"
+          
+          echo "✅ Backup completed: ${BACKUP_NAME}"
+
+  # Развертывание на production
+  deploy-to-production:
+    name: Deploy to Production
+    runs-on: self-hosted
+    needs: [check-deployment-conditions, backup-current-deployment]
+    if: needs.check-deployment-conditions.outputs.should_deploy == 'true'
+    timeout-minutes: 20
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+      
+      - name: 📝 Prepare production directory
+        run: |
+          echo "📋 Preparing production directory..."
+          
+          # Создать директорию если не существует
+          mkdir -p ${{ env.DEPLOY_DIR }}
+          
+          # Копировать файлы
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='_work' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            ./ ${{ env.DEPLOY_DIR }}/
+          
+          echo "✅ Code synced to production directory"
+      
+      - name: 🔑 Create production .env
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🔑 Creating production .env file..."
+          
+          cat > .env << EOF
+          # Production Environment Variables
+          # Generated: $(date)
+          
+          # Database
+          POSTGRES_DB=n8n
+          POSTGRES_USER=n8n
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          
+          # Redis
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Configuration
+          N8N_HOST=0.0.0.0
+          N8N_PORT=5678
+          N8N_PROTOCOL=http
+          WEBHOOK_URL=http://192.168.0.105:5678/
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
+          
+          # Tor
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=
+          JINA_API_KEY=
+          EOF
+          
+          chmod 600 .env
+          echo "✅ Production .env created"
+      
+      - name: 🏭 Build production images
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🏭 Building production Docker images..."
+          
+          docker build \
+            -t n8n-enhanced:production \
+            -t n8n-enhanced:latest \
+            -f Dockerfile.n8n-enhanced \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            .
+          
+          echo "✅ Images built successfully"
+      
+      - name: 🛑 Stop current services (graceful)
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🛑 Stopping current services..."
+          
+          if [ -f docker-compose.yml ]; then
+            # Остановить n8n (но оставить базу)
+            docker compose stop n8n tor 2>/dev/null || true
+            
+            # Подождать завершения
+            sleep 5
+            
+            echo "✅ Services stopped gracefully"
+          else
+            echo "⚠️  No docker-compose.yml found, skipping stop"
+          fi
+      
+      - name: 🚀 Start production services
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🚀 Starting production services..."
+          
+          # Запустить базу и Redis (если не запущены)
+          docker compose up -d postgres redis
+          
+          # Подождать инициализацию базы
+          echo "⏳ Waiting for database..."
+          sleep 15
+          
+          # Запустить n8n с новым образом
+          docker compose up -d n8n tor
+          
+          echo "✅ Services started"
+      
+      - name: ⏳ Wait for n8n startup
+        run: |
+          echo "⏳ Waiting for n8n to become healthy..."
+          
+          MAX_ATTEMPTS=60
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+              echo "✅ n8n is healthy!"
+              exit 0
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+            sleep 2
+          done
+          
+          echo "❌ n8n failed to start within timeout"
+          docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml logs n8n
+          exit 1
+      
+      - name: 📊 Deploy monitoring stack
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "📊 Starting monitoring services..."
+          
+          docker compose up -d prometheus grafana
+          
+          echo "✅ Monitoring stack deployed"
+        continue-on-error: true
+      
+      - name: 🧪 Post-deployment health check
+        if: ${{ !inputs.skip_tests }}
+        run: |
+          echo "🧪 Running post-deployment health checks..."
+          
+          # Проверка основных эндпоинтов
+          CHECKS_PASSED=0
+          CHECKS_FAILED=0
+          
+          # 1. n8n health
+          if curl -sf http://localhost:5678/healthz; then
+            echo "✅ n8n health check passed"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          else
+            echo "❌ n8n health check failed"
+            CHECKS_FAILED=$((CHECKS_FAILED + 1))
+          fi
+          
+          # 2. Database connection
+          if docker exec postgres pg_isready -U n8n; then
+            echo "✅ Database connection check passed"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          else
+            echo "❌ Database connection check failed"
+            CHECKS_FAILED=$((CHECKS_FAILED + 1))
+          fi
+          
+          # 3. Redis connection
+          if docker exec redis redis-cli ping | grep -q PONG; then
+            echo "✅ Redis connection check passed"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          else
+            echo "❌ Redis connection check failed"
+            CHECKS_FAILED=$((CHECKS_FAILED + 1))
+          fi
+          
+          echo ""
+          echo "====================================="
+          echo "📊 Health Check Summary"
+          echo "====================================="
+          echo "Passed: $CHECKS_PASSED"
+          echo "Failed: $CHECKS_FAILED"
+          
+          if [ $CHECKS_FAILED -gt 0 ]; then
+            echo "❌ Some health checks failed!"
+            exit 1
+          fi
+          
+          echo "✅ All health checks passed!"
+      
+      - name: 📋 Display deployment info
+        if: success()
+        run: |
+          echo ""
+          echo "====================================="
+          echo "🎉 DEPLOYMENT SUCCESSFUL"
+          echo "====================================="
+          echo ""
+          echo "Deployment Details:"
+          echo "  - Commit: ${{ github.sha }}"
+          echo "  - Branch: ${{ github.ref }}"
+          echo "  - Deploy Time: $(date)"
+          echo "  - Deployed By: ${{ github.actor }}"
+          echo ""
+          echo "Services:"
+          docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
+          echo ""
+          echo "Access URLs:"
+          echo "  - n8n: http://192.168.0.105:5678"
+          echo "  - Grafana: http://192.168.0.105:3001"
+          echo "  - Prometheus: http://192.168.0.105:9090"
+          echo ""
+      
+      - name: 🚨 Rollback on failure
+        if: failure()
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          echo "🚨 Deployment failed! Attempting rollback..."
+          
+          # Остановить сломанные сервисы
+          docker compose down n8n tor
+          
+          # Восстановить старый образ (если есть)
+          if docker images | grep -q n8n-enhanced; then
+            echo "Rolling back to previous image..."
+            # Запустить со старым образом
+            docker compose up -d n8n tor
+          fi
+          
+          echo "❌ Rollback completed. Check logs for details."
+          docker compose logs --tail=100 n8n
+
+  # Нотификация о результате
+  deployment-notification:
+    name: Deployment Notification
+    runs-on: self-hosted
+    needs: [check-deployment-conditions, deploy-to-production]
+    if: always() && needs.check-deployment-conditions.outputs.should_deploy == 'true'
+    steps:
+      - name: 📣 Summary
+        run: |
+          echo ""
+          echo "====================================="
+          echo "📣 DEPLOYMENT SUMMARY"
+          echo "====================================="
+          echo ""
+          echo "Status: ${{ needs.deploy-to-production.result }}"
+          echo "Validation: ${{ needs.check-deployment-conditions.outputs.validation_status }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Time: $(date)"
+          echo ""
+          
+          if [ "${{ needs.deploy-to-production.result }}" = "success" ]; then
+            echo "✅ Deployment completed successfully!"
+            echo ""
+            echo "Next steps:"
+            echo "  1. Verify n8n: http://192.168.0.105:5678"
+            echo "  2. Check metrics: http://192.168.0.105:3001"
+            echo "  3. Monitor logs: docker compose logs -f n8n"
+          else
+            echo "❌ Deployment failed!"
+            echo ""
+            echo "Troubleshooting:"
+            echo "  1. Check runner logs: journalctl -u actions.runner.*"
+            echo "  2. Check n8n logs: docker compose logs n8n"
+            echo "  3. Verify backup: ls -lh ${{ env.BACKUP_DIR }}"
+          fi
