@@ -262,7 +262,7 @@ jobs:
           N8N_URL: "http://localhost:5678"
           N8N_USER: ${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
-          WEBHOOK_PATH: "/webhook-test/scrape"
+          WEBHOOK_PATH: "/webhook/scrape"  # FIXED: Changed from /webhook-test/scrape to /webhook/scrape
           TEST_TIMEOUT: "30"
           REPORT_FILE: "${{ env.LOGS_DIR }}/workflow-results.json"
         run: |
