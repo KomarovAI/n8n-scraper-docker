@@ -218,6 +218,13 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-scraper_user}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       
+      # n8n HTTP configuration (CRITICAL: must be in environment, not .env!)
+      N8N_HOST: ${N8N_HOST:-0.0.0.0}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://192.168.0.105:5678/}
+      
       # Execution settings
       EXECUTIONS_DATA_SAVE_ON_ERROR: "all"
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: "all"
