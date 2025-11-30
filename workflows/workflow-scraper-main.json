@@ -6,7 +6,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "scrape",
-        "authentication": "headerAuth",
+        "authentication": "none",
         "options": {}
       },
       "name": "Webhook",
@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// SSRF Protection & Input Validation\\nconst url = $input.item.json.url;\\nconst selector = $input.item.json.selector || 'body';\\nconst waitFor = $input.item.json.waitFor;\\n\\n// Validate URL\\nif (!url || !url.startsWith('http')) {\\n  throw new Error('Invalid URL');\\n}\\n\\n// SSRF Protection\\nconst blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', 'metadata.google.internal'];\\nconst urlObj = new URL(url);\\nif (blockedHosts.includes(urlObj.hostname)) {\\n  throw new Error('SSRF detected - blocked host');\\n}\\n\\n// Detect site type\\nconst needsJS = ['javascript', 'react', 'vue', 'angular', 'spa'].some(keyword => url.toLowerCase().includes(keyword));\\nconst isProtected = ['cloudflare', 'datadome', 'akamai'].some(keyword => url.toLowerCase().includes(keyword));\\n\\nreturn {\\n  json: {\\n    url,\\n    selector,\\n    waitFor,\\n    needsJS,\\n    isProtected,\\n    requestId: `scrape-${Date.now()}`,\\n    timestamp: new Date().toISOString()\\n  }\\n};"
+        "functionCode": "// SSRF Protection & Input Validation\nconst url = $input.item.json.url;\nconst selector = $input.item.json.selector || 'body';\nconst waitFor = $input.item.json.waitFor;\n\n// Validate URL\nif (!url || !url.startsWith('http')) {\n  throw new Error('Invalid URL');\n}\n\n// SSRF Protection\nconst blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', 'metadata.google.internal'];\nconst urlObj = new URL(url);\nif (blockedHosts.includes(urlObj.hostname)) {\n  throw new Error('SSRF detected - blocked host');\n}\n\n// Detect site type\nconst needsJS = ['javascript', 'react', 'vue', 'angular', 'spa'].some(keyword => url.toLowerCase().includes(keyword));\nconst isProtected = ['cloudflare', 'datadome', 'akamai'].some(keyword => url.toLowerCase().includes(keyword));\n\nreturn {\n  json: {\n    url,\n    selector,\n    waitFor,\n    needsJS,\n    isProtected,\n    requestId: `scrape-${Date.now()}`,\n    timestamp: new Date().toISOString()\n  }\n};"
       },
       "name": "Input Validator",
       "type": "n8n-nodes-base.code",
