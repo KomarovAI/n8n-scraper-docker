@@ -83,10 +83,10 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           BACKUP_NAME="emergency-backup-${TIMESTAMP}"
           
-          # Backup PostgreSQL
-          if docker ps | grep -q postgres; then
+          # Backup PostgreSQL (using correct container name)
+          if docker ps | grep -q n8n-postgres; then
             echo "📦 Backing up PostgreSQL..."
-            docker exec postgres pg_dump -U n8n n8n > "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
+            docker exec n8n-postgres pg_dump -U n8n n8n > "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
             gzip "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
             echo "✅ Database backup: ${BACKUP_NAME}.sql.gz"
           else
@@ -327,8 +327,8 @@ jobs:
             CHECKS_FAILED=$((CHECKS_FAILED + 1))
           fi
           
-          # Check PostgreSQL
-          if docker exec postgres pg_isready -U n8n > /dev/null 2>&1; then
+          # Check PostgreSQL (FIXED: use correct container name)
+          if docker exec n8n-postgres pg_isready -U n8n > /dev/null 2>&1; then
             echo "✅ PostgreSQL check passed"
             CHECKS_PASSED=$((CHECKS_PASSED + 1))
           else
@@ -336,8 +336,8 @@ jobs:
             CHECKS_FAILED=$((CHECKS_FAILED + 1))
           fi
           
-          # Check Redis
-          if docker exec redis redis-cli ping 2>/dev/null | grep -q PONG; then
+          # Check Redis (FIXED: use correct container name)
+          if docker exec n8n-redis redis-cli -a "${{ secrets.REDIS_PASSWORD_CI }}" ping 2>/dev/null | grep -q PONG; then
             echo "✅ Redis check passed"
             CHECKS_PASSED=$((CHECKS_PASSED + 1))
           else
