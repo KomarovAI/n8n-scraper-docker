@@ -92,6 +92,11 @@ services:
       EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
       EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "true"
       
+      # ✅ NEW: Static encryption key for CI API key persistence
+      # This ensures API keys work across container restarts in CI
+      # WARNING: Only for CI! Use random key in production!
+      N8N_ENCRYPTION_KEY: "ci-static-encryption-key-for-testing-only-12345678-do-not-use-in-production"
+      
       # CI-специфичное логирование
       N8N_LOG_LEVEL: debug
       N8N_LOG_OUTPUT: console
