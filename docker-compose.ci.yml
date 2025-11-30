@@ -44,15 +44,22 @@ services:
     ports:
       - "5678:5678"
     environment:
+      # ⚠️ CRITICAL: Basic Auth credentials must match .env file!
+      # These are read from env vars set by workflow from GitHub Secrets
+      # DO NOT hardcode values here - they come from .env created by workflow
       N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: admin
-      N8N_BASIC_AUTH_PASSWORD: admin
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-admin}
+      
+      # Database settings
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: scraper_db
       DB_POSTGRESDB_USER: scraper_user
       DB_POSTGRESDB_PASSWORD: test_password_postgres_123
+      
+      # n8n settings
       N8N_METRICS: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
       EXECUTIONS_DATA_SAVE_ON_ERROR: all
