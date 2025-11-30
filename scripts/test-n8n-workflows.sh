@@ -17,7 +17,7 @@ echo ""
 N8N_URL="${N8N_URL:-http://localhost:5678}"
 N8N_USER="${N8N_USER:-admin@example.com}"
 N8N_PASSWORD="${N8N_PASSWORD}"
-WEBHOOK_PATH="${WEBHOOK_PATH:-/webhook/scrape}"  # FIXED: Changed from /webhook-test/scrape to /webhook/scrape
+WEBHOOK_PATH="${WEBHOOK_PATH:-/webhook/scrape}"
 TIMEOUT="${TEST_TIMEOUT:-30}"
 
 if [ -z "$N8N_PASSWORD" ]; then
@@ -66,6 +66,52 @@ echo "🔐 Setting up Basic Authentication..."
 BASIC_AUTH=$(echo -n "${N8N_USER}:${N8N_PASSWORD}" | base64)
 AUTH_HEADER="Authorization: Basic ${BASIC_AUTH}"
 echo -e "${GREEN}✅ Basic Auth header created${NC}"
+echo ""
+
+# ══════════════════════════════════════════════════════════════════
+# PREFLIGHT CHECK: WEBHOOK READINESS VERIFICATION
+# Source: https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/
+# "Webhook nodes become active after workflow activation"
+# ══════════════════════════════════════════════════════════════════
+
+echo "🔍 Pre-flight check: verifying webhook readiness..."
+echo "──────────────────────────────────────────────────────────────────"
+
+PREFLIGHT_URL="https://example.com"
+PREFLIGHT_RETRIES=3
+PREFLIGHT_SUCCESS=false
+
+for ((i=1; i<=PREFLIGHT_RETRIES; i++)); do
+  echo "   Attempt $i/$PREFLIGHT_RETRIES: Testing webhook endpoint..."
+  
+  RESPONSE=$(curl -s -X POST \
+    -H "${AUTH_HEADER}" \
+    -H "Content-Type: application/json" \
+    "${N8N_URL}${WEBHOOK_PATH}" \
+    -d "{\"url\": \"$PREFLIGHT_URL\"}" \
+    --max-time 10 2>&1 || echo "CONNECTION_ERROR")
+  
+  # Проверяем что НЕ получили connection error или workflow error
+  if [ "$RESPONSE" != "CONNECTION_ERROR" ] && \
+     ! echo "$RESPONSE" | grep -qi "Error in workflow" && \
+     ! echo "$RESPONSE" | grep -qi "Could not connect"; then
+    PREFLIGHT_SUCCESS=true
+    echo -e "   ${GREEN}✅ Webhook is responding and ready${NC}"
+    break
+  fi
+  
+  if [ $i -lt $PREFLIGHT_RETRIES ]; then
+    echo -e "   ${YELLOW}⏳ Webhook not ready yet, waiting 3 seconds...${NC}"
+    sleep 3
+  fi
+done
+
+if [ "$PREFLIGHT_SUCCESS" = false ]; then
+  echo -e "${YELLOW}⚠️  WARNING: Webhook may not be fully initialized after $PREFLIGHT_RETRIES attempts${NC}"
+  echo "   First few tests might fail - this is expected if webhooks are still starting up"
+  echo "   Proceeding with tests anyway..."
+fi
+
 echo ""
 
 # Function to test URL
