@@ -1,9 +1,9 @@
-name: 4 Production Verification - FINAL BOSS CHECKS
+name: 5️⃣ Production Verification
 
 on:
   # 🎯 ЗАПУСК ПОСЛЕ УСПЕШНОГО ДЕПЛОЯ
   workflow_run:
-    workflows: ["3 Production Deployment"]
+    workflows: ["4️⃣ Production Deployment"]
     types: [completed]
     branches: [main]
   
@@ -35,9 +35,9 @@ jobs:
       - name: 🏥 Check all services
         id: check
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "🔍 BASIC HEALTH CHECKS"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           TOTAL=0
@@ -97,9 +97,9 @@ jobs:
           TOTAL=$((TOTAL + 1))
           
           echo ""
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "📊 Summary: $PASSED/$TOTAL passed"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           
           if [ $FAILED -gt 0 ]; then
             echo "❌ Some services are DOWN!"
@@ -126,9 +126,9 @@ jobs:
         env:
           N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "🧪 WORKFLOW FUNCTIONALITY TESTS"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           # 1. Список workflows
@@ -191,9 +191,9 @@ jobs:
     steps:
       - name: 📊 Check monitoring services
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "📊 MONITORING STACK VERIFICATION"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           MONITORING_OK=true
@@ -250,9 +250,9 @@ jobs:
     steps:
       - name: 🗄️ Verify database
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "🗄️ DATABASE INTEGRITY CHECKS"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           # 1. Database size
@@ -297,9 +297,9 @@ jobs:
     steps:
       - name: 🚀 Run performance tests
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "🚀 PERFORMANCE BENCHMARKS"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           # 1. n8n response time
@@ -345,9 +345,9 @@ jobs:
     steps:
       - name: 🔐 Security checks
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "🔐 SECURITY VERIFICATION"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           SECURITY_OK=true
@@ -403,9 +403,9 @@ jobs:
         env:
           N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
         run: |
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo "🌐 END-TO-END INTEGRATION TEST"
-          echo "═══════════════════════════════════════"
+          echo "═════════════════════════════════════"
           echo ""
           
           # 1. Create test workflow via API
@@ -512,7 +512,7 @@ jobs:
           echo "🔐 Security:              ${{ needs.security-verification.result }}"
           echo "🌐 E2E Integration:       ${{ needs.e2e-integration-test.result }}"
           echo ""
-          echo "─────────────────────────────────────────────────────────────────"
+          echo "───────────────────────────────────────────────────────────────"
           echo "Service Status:"
           echo "  • n8n:        ${{ needs.basic-health-checks.outputs.n8n_status }}"
           echo "  • PostgreSQL: ${{ needs.basic-health-checks.outputs.db_status }}"
@@ -523,7 +523,7 @@ jobs:
           echo "  • Active workflows: ${{ needs.workflow-functionality-tests.outputs.workflows_active }}"
           echo "  • Webhooks working: ${{ needs.workflow-functionality-tests.outputs.webhooks_working }}"
           echo ""
-          echo "─────────────────────────────────────────────────────────────────"
+          echo "───────────────────────────────────────────────────────────────"
           echo "Access URLs:"
           echo "  • n8n:        ${{ env.N8N_URL }}"
           echo "  • Grafana:    ${{ env.GRAFANA_URL }}"
