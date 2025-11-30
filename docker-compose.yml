@@ -46,8 +46,8 @@ services:
       - "9050:9050"  # SOCKS proxy
       - "9051:9051"  # Control port
     environment:
-      TOR_NewCircuitPeriod: 60
-      TOR_MaxCircuitDirtiness: 300
+      TOR_NewCircuitPeriod: "60"
+      TOR_MaxCircuitDirtiness: "300"
       TOR_CONTROL_PASSWORD: ${TOR_CONTROL_PASSWORD:?TOR_CONTROL_PASSWORD must be set in .env file}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--socks5", "localhost:9050", "https://check.torproject.org/api/ip"]
@@ -95,7 +95,7 @@ services:
       OLLAMA_URL: http://ollama:11434
       HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
       REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - ./ml:/app
@@ -213,19 +213,19 @@ services:
       # Database configuration
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_PORT: "5432"
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-scraper_db}
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-scraper_user}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       
       # Execution settings
-      EXECUTIONS_DATA_SAVE_ON_ERROR: all
-      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
-      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: true
+      EXECUTIONS_DATA_SAVE_ON_ERROR: "all"
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: "all"
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "true"
       
       # Monitoring
-      N8N_METRICS: true
-      N8N_DIAGNOSTICS_ENABLED: false
+      N8N_METRICS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
       
       # Optional: ML Service endpoint
       ML_SERVICE_URL: http://ml-service:8000
