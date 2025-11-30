@@ -1,0 +1,70 @@
+name: Setup Environment
+
+on:
+  workflow_call:
+    inputs:
+      create_env:
+        description: 'Create .env file from secrets'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      POSTGRES_PASSWORD_CI:
+        required: true
+      REDIS_PASSWORD_CI:
+        required: true
+      N8N_USER_CI:
+        required: true
+      N8N_PASSWORD_CI:
+        required: true
+      TOR_CONTROL_PASSWORD_CI:
+        required: true
+      GRAFANA_USER_CI:
+        required: true
+      GRAFANA_PASSWORD_CI:
+        required: true
+      N8N_API_KEY:
+        required: false
+      FIRECRAWL_API_KEY:
+        required: false
+      JINA_API_KEY:
+        required: false
+
+jobs:
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📝 Create .env from secrets
+        if: inputs.create_env == true
+        run: |
+          cat > .env << 'EOF'
+          # Database & Cache
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
+          
+          # n8n Authentication
+          N8N_USER=${{ secrets.N8N_USER_CI }}
+          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
+          N8N_API_KEY=${{ secrets.N8N_API_KEY }}
+          
+          # Tor Control
+          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
+          
+          # Monitoring
+          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
+          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
+          
+          # Optional API Keys
+          FIRECRAWL_API_KEY=${{ secrets.FIRECRAWL_API_KEY }}
+          JINA_API_KEY=${{ secrets.JINA_API_KEY }}
+          EOF
+          echo "✅ .env file created from GitHub Secrets"
+      
+      - name: 📤 Upload .env as artifact
+        if: inputs.create_env == true
+        uses: actions/upload-artifact@v5
+        with:
+          name: environment-config
+          path: .env
+          retention-days: 1
