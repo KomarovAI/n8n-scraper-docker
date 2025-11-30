@@ -30,8 +30,6 @@ concurrency:
 env:
   DEPLOY_DIR: /home/artikk/n8n-production
   BACKUP_DIR: /home/artikk/n8n-backups
-  DOCKER_BUILDKIT: 1
-  COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
   # ⚠️ ПРЕДУПРЕЖДЕНИЕ
@@ -86,9 +84,9 @@ jobs:
           BACKUP_NAME="emergency-backup-${TIMESTAMP}"
           
           # Backup PostgreSQL
-          if /usr/bin/docker ps | grep -q postgres; then
+          if docker ps | grep -q postgres; then
             echo "📦 Backing up PostgreSQL..."
-            /usr/bin/docker exec postgres pg_dump -U n8n n8n > "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
+            docker exec postgres pg_dump -U n8n n8n > "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
             gzip "${{ env.BACKUP_DIR }}/${BACKUP_NAME}.sql"
             echo "✅ Database backup: ${BACKUP_NAME}.sql.gz"
           else
@@ -139,15 +137,17 @@ jobs:
           # Check docker
           if ! command -v docker &> /dev/null; then
             echo "❌ Docker not found in PATH!"
-            echo "Checking /usr/bin/docker..."
-            if [ -f /usr/bin/docker ]; then
-              echo "✅ Docker found at /usr/bin/docker"
-            else
-              echo "❌ Docker not installed!"
-              exit 1
-            fi
+            exit 1
           else
-            echo "✅ docker command available"
+            echo "✅ docker command available: $(docker --version)"
+          fi
+          
+          # Check docker-compose
+          if ! command -v docker-compose &> /dev/null; then
+            echo "❌ docker-compose not found in PATH!"
+            exit 1
+          else
+            echo "✅ docker-compose available: $(docker-compose --version)"
           fi
           
           echo "✅ All dependencies ready"
@@ -226,14 +226,13 @@ jobs:
       - name: 🏭 Build production images
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
-          echo "🏭 Building Docker images..."
+          echo "🏭 Building Docker images (using legacy builder)..."
           
-          /usr/bin/docker build \
+          docker build \
             -t n8n-enhanced:production \
             -t n8n-enhanced:latest \
             -t n8n-enhanced:emergency-$(date +%Y%m%d-%H%M%S) \
             -f Dockerfile.n8n-enhanced \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
             .
           
           echo "✅ Images built"
@@ -245,10 +244,10 @@ jobs:
           
           if [ "${{ github.event.inputs.force_restart }}" = "true" ]; then
             echo "⚡ Force restart enabled - stopping ALL services"
-            /usr/bin/docker compose down
+            docker-compose down
           else
             echo "🔄 Graceful stop - keeping database running"
-            /usr/bin/docker compose stop n8n tor ml-service ollama 2>/dev/null || true
+            docker-compose stop n8n tor ml-service ollama 2>/dev/null || true
           fi
           
           sleep 5
@@ -259,7 +258,7 @@ jobs:
         working-directory: ${{ env.DEPLOY_DIR }}
         run: |
           echo "🗑️ Removing old containers..."
-          /usr/bin/docker compose down -v 2>/dev/null || true
+          docker-compose down -v 2>/dev/null || true
           echo "✅ Cleanup complete"
       
       - name: 🚀 Start production services
@@ -268,16 +267,16 @@ jobs:
           echo "🚀 Starting production services..."
           
           # Start database and Redis
-          /usr/bin/docker compose up -d postgres redis
+          docker-compose up -d postgres redis
           echo "⏳ Waiting for database (15s)..."
           sleep 15
           
           # Start n8n with new image
-          /usr/bin/docker compose up -d n8n tor
+          docker-compose up -d n8n tor
           echo "✅ Core services started"
           
           # Start monitoring (non-blocking)
-          /usr/bin/docker compose up -d prometheus grafana 2>/dev/null || echo "⚠️  Monitoring services unavailable"
+          docker-compose up -d prometheus grafana 2>/dev/null || echo "⚠️  Monitoring services unavailable"
           
           echo "✅ All services started"
       
@@ -293,7 +292,7 @@ jobs:
               echo "✅ n8n is healthy!"
               
               # Display service status
-              /usr/bin/docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
+              docker-compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
               exit 0
             fi
             
@@ -309,7 +308,7 @@ jobs:
           echo "❌ n8n failed to start within timeout!"
           echo ""
           echo "📋 Recent logs:"
-          /usr/bin/docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml logs --tail=100 n8n
+          docker-compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml logs --tail=100 n8n
           exit 1
       
       - name: 🧪 Basic health check
@@ -329,7 +328,7 @@ jobs:
           fi
           
           # Check PostgreSQL
-          if /usr/bin/docker exec postgres pg_isready -U n8n > /dev/null 2>&1; then
+          if docker exec postgres pg_isready -U n8n > /dev/null 2>&1; then
             echo "✅ PostgreSQL check passed"
             CHECKS_PASSED=$((CHECKS_PASSED + 1))
           else
@@ -338,7 +337,7 @@ jobs:
           fi
           
           # Check Redis
-          if /usr/bin/docker exec redis redis-cli ping 2>/dev/null | grep -q PONG; then
+          if docker exec redis redis-cli ping 2>/dev/null | grep -q PONG; then
             echo "✅ Redis check passed"
             CHECKS_PASSED=$((CHECKS_PASSED + 1))
           else
@@ -383,7 +382,7 @@ jobs:
           echo "   • Prometheus: http://192.168.0.105:9090"
           echo ""
           echo "📊 Service Status:"
-          /usr/bin/docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
+          docker-compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml ps
           echo ""
           echo "⚠️  IMPORTANT: Run full validation when possible!"
           echo ""
@@ -402,19 +401,19 @@ jobs:
           echo "🚨 Attempting emergency rollback..."
           
           # Stop broken services
-          /usr/bin/docker compose down n8n tor
+          docker-compose down n8n tor
           
           # Try to restart with old image
-          /usr/bin/docker compose up -d n8n tor
+          docker-compose up -d n8n tor
           
           echo ""
           echo "📋 Post-rollback logs:"
-          /usr/bin/docker compose logs --tail=100 n8n
+          docker-compose logs --tail=100 n8n
           echo ""
           echo "⚠️  Manual intervention may be required!"
           echo ""
           echo "🔍 Check backup location: ${{ env.BACKUP_DIR }}"
-          echo "🔍 Check logs: docker compose logs n8n"
+          echo "🔍 Check logs: docker-compose logs n8n"
 
   # 📊 DEPLOYMENT SUMMARY
   emergency-summary:
@@ -448,7 +447,7 @@ jobs:
             echo ""
             echo "🔍 Next Steps:"
             echo "   1. Verify n8n: http://192.168.0.105:5678"
-            echo "   2. Check logs: docker compose logs -f n8n"
+            echo "   2. Check logs: docker-compose logs -f n8n"
             echo "   3. Monitor metrics: http://192.168.0.105:3001"
             echo "   4. Run full validation when possible"
             echo ""
@@ -457,8 +456,8 @@ jobs:
             echo "❌ Emergency deployment FAILED!"
             echo ""
             echo "🔍 Troubleshooting:"
-            echo "   1. Check n8n logs: docker compose logs n8n"
-            echo "   2. Check service status: docker compose ps"
+            echo "   1. Check n8n logs: docker-compose logs n8n"
+            echo "   2. Check service status: docker-compose ps"
             echo "   3. Review backup: ls -lh ${{ env.BACKUP_DIR }}"
             echo "   4. Manual recovery may be required"
             echo ""
