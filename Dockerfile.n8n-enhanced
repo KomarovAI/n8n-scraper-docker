@@ -1,4 +1,8 @@
-# syntax=docker/dockerfile:1
+# ⚠️ LEGACY BUILDER COMPATIBLE
+# This Dockerfile works without BuildKit (compatible with Docker 28.2.2)
+# For faster builds with BuildKit, uncomment the syntax line below:
+# # syntax=docker/dockerfile:1
+
 # ⭐ OPTIMIZED BUILD: Слои упорядочены от редко меняющихся к часто меняющимся
 # Это максимизирует Docker layer cache reuse
 
@@ -46,13 +50,11 @@ WORKDIR /home/node/.n8n
 # ==============================================================================
 # STAGE 4: NPM зависимости (СРЕДНЕ меняются)
 # ==============================================================================
-# ⭐ КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ:
-# - Сначала COPY package*.json (если есть) для кэширования npm install
-# - Используем --mount=type=cache для npm кэша (ускоряет в 10х)
-# - Изменение зависимостей не инвалидирует другие слои
+# ⚠️ LEGACY BUILDER: Используем обычный RUN без --mount
+# Для ускорения с BuildKit используйте:
+# RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000
 
-RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
-    npm install --prefix /home/node/.n8n \
+RUN npm install --prefix /home/node/.n8n \
     --prefer-offline \
     --no-audit \
     --progress=false \
