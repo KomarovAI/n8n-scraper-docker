@@ -1,0 +1,75 @@
+name: Wait for Service
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Service name (n8n, postgres, redis, etc.)'
+        required: true
+        type: string
+      health_check_url:
+        description: 'Health check URL (e.g., http://localhost:5678/healthz)'
+        required: false
+        type: string
+        default: ''
+      health_check_command:
+        description: 'Custom health check command'
+        required: false
+        type: string
+        default: ''
+      timeout_seconds:
+        description: 'Timeout in seconds'
+        required: false
+        type: number
+        default: 90
+      retry_interval:
+        description: 'Retry interval in seconds'
+        required: false
+        type: number
+        default: 2
+
+jobs:
+  wait:
+    name: Wait for ${{ inputs.service_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⏳ Wait for ${{ inputs.service_name }} to be ready
+        run: |
+          echo "🔍 Waiting for ${{ inputs.service_name }} (timeout: ${{ inputs.timeout_seconds }}s)..."
+          START=$(date +%s)
+          TIMEOUT=${{ inputs.timeout_seconds }}
+          RETRY_INTERVAL=${{ inputs.retry_interval }}
+          
+          while [ $(($(date +%s) - START)) -lt $TIMEOUT ]; do
+            # URL-based health check
+            if [ -n "${{ inputs.health_check_url }}" ]; then
+              if curl -sf ${{ inputs.health_check_url }} > /dev/null 2>&1; then
+                ELAPSED=$(($(date +%s) - START))
+                echo "✅ ${{ inputs.service_name }} is ready after ${ELAPSED}s"
+                exit 0
+              fi
+            fi
+            
+            # Command-based health check
+            if [ -n "${{ inputs.health_check_command }}" ]; then
+              if eval ${{ inputs.health_check_command }} > /dev/null 2>&1; then
+                ELAPSED=$(($(date +%s) - START))
+                echo "✅ ${{ inputs.service_name }} is ready after ${ELAPSED}s"
+                exit 0
+              fi
+            fi
+            
+            # Progress indicator
+            ELAPSED=$(($(date +%s) - START))
+            if [ $((ELAPSED % 15)) -eq 0 ]; then
+              echo "⏳ Still waiting... (${ELAPSED}s elapsed)"
+            fi
+            
+            sleep $RETRY_INTERVAL
+          done
+          
+          echo "❌ Timeout: ${{ inputs.service_name }} not ready after ${TIMEOUT}s"
+          docker compose ps ${{ inputs.service_name }} || true
+          docker compose logs --tail=100 ${{ inputs.service_name }} || true
+          exit 1
+        timeout-minutes: 3
