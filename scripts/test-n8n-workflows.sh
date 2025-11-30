@@ -17,7 +17,7 @@ echo ""
 N8N_URL="${N8N_URL:-http://localhost:5678}"
 N8N_USER="${N8N_USER:-admin@example.com}"
 N8N_PASSWORD="${N8N_PASSWORD}"
-WEBHOOK_PATH="${WEBHOOK_PATH:-/webhook-test/scrape}"
+WEBHOOK_PATH="${WEBHOOK_PATH:-/webhook/scrape}"  # FIXED: Changed from /webhook-test/scrape to /webhook/scrape
 TIMEOUT="${TEST_TIMEOUT:-30}"
 
 if [ -z "$N8N_PASSWORD" ]; then
