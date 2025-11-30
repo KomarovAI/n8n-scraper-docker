@@ -12,39 +12,59 @@
       },
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
-      "position": [250, 300],
+      "position": [
+        250,
+        300
+      ],
       "webhookId": "scraper-webhook"
     },
     {
       "parameters": {
-        "functionCode": "// SSRF Protection & Input Validation\nconst url = $input.item.json.url;\nconst selector = $input.item.json.selector || 'body';\nconst waitFor = $input.item.json.waitFor;\n\n// Validate URL\nif (!url || !url.startsWith('http')) {\n  throw new Error('Invalid URL');\n}\n\n// SSRF Protection\nconst blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', 'metadata.google.internal'];\nconst urlObj = new URL(url);\nif (blockedHosts.includes(urlObj.hostname)) {\n  throw new Error('SSRF detected - blocked host');\n}\n\n// Detect site type\nconst needsJS = ['javascript', 'react', 'vue', 'angular', 'spa'].some(keyword => url.toLowerCase().includes(keyword));\nconst isProtected = ['cloudflare', 'datadome', 'akamai'].some(keyword => url.toLowerCase().includes(keyword));\n\nreturn {\n  json: {\n    url,\n    selector,\n    waitFor,\n    needsJS,\n    isProtected,\n    requestId: `scrape-${Date.now()}`,\n    timestamp: new Date().toISOString()\n  }\n};"
+        "functionCode": "// SSRF Protection & Input Validation\nconst url = $input.item.json.url;\nconst selector = $input.item.json.selector || 'body';\n\n// Validate URL\nif (!url || !url.startsWith('http')) {\n  throw new Error('Invalid URL');\n}\n\n// SSRF Protection\nconst blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', 'metadata.google.internal'];\nconst urlObj = new URL(url);\nif (blockedHosts.includes(urlObj.hostname)) {\n  throw new Error('SSRF detected - blocked host');\n}\n\nreturn {\n  json: {\n    url,\n    selector,\n    requestId: `scrape-${Date.now()}`,\n    timestamp: new Date().toISOString()\n  }\n};"
       },
       "name": "Input Validator",
       "type": "n8n-nodes-base.code",
-      "position": [450, 300]
+      "position": [
+        450,
+        300
+      ]
     },
     {
       "parameters": {
-        "conditions": {
-          "boolean": [
+        "url": "={{$json.url}}",
+        "options": {
+          "timeout": 30000
+        },
+        "headerParameters": {
+          "parameters": [
             {
-              "value1": "={{$json.isProtected}}",
-              "value2": true
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml"
             }
           ]
         }
       },
-      "name": "Protected Site?",
-      "type": "n8n-nodes-base.if",
-      "position": [650, 300]
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        650,
+        300
+      ]
     },
     {
       "parameters": {
-        "functionCode": "// Simple mock response for testing\nreturn {\n  json: {\n    success: true,\n    url: $json.url,\n    requestId: $json.requestId,\n    timestamp: $json.timestamp,\n    needsJS: $json.needsJS,\n    isProtected: $json.isProtected,\n    message: 'Workflow executed successfully (mock response for CI testing)',\n    data: {\n      title: 'Test Page',\n      content: 'Mock content for testing purposes'\n    }\n  }\n};"
+        "functionCode": "// Extract content from HTML\nconst html = $input.item.body;\nconst url = $input.item.json.url;\nconst requestId = $input.item.json.requestId;\n\ntry {\n  // Extract title\n  const titleMatch = /<title>(.*?)<\\/title>/i.exec(html);\n  const title = titleMatch ? titleMatch[1] : '';\n  \n  // Extract main content\n  const mainRegex = /<main.*?>([\\s\\S]+?)<\\/main>/i;\n  const articleRegex = /<article.*?>([\\s\\S]+?)<\\/article>/i;\n  const bodyRegex = /<body.*?>([\\s\\S]+?)<\\/body>/i;\n  \n  let mainContent = mainRegex.exec(html)?.[1] || \n                    articleRegex.exec(html)?.[1] || \n                    bodyRegex.exec(html)?.[1] || \n                    html;\n  \n  // Clean content\n  mainContent = mainContent\n    .replace(/<script[^>]*>.*?<\\/script>/gis, '')\n    .replace(/<style[^>]*>.*?<\\/style>/gis, '')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .substring(0, 50000);\n  \n  return {\n    json: {\n      success: true,\n      url,\n      requestId,\n      timestamp: new Date().toISOString(),\n      data: {\n        title,\n        content: mainContent,\n        content_length: mainContent.length,\n        html_length: html.length\n      }\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      success: false,\n      url,\n      requestId,\n      error: error.message,\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
       },
-      "name": "Mock Response",
+      "name": "Extract Content",
       "type": "n8n-nodes-base.code",
-      "position": [850, 300]
+      "position": [
+        850,
+        300
+      ]
     }
   ],
   "connections": {
@@ -63,25 +83,18 @@
       "main": [
         [
           {
-            "node": "Protected Site?",
+            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Protected Site?": {
+    "HTTP Request": {
       "main": [
         [
           {
-            "node": "Mock Response",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Mock Response",
+            "node": "Extract Content",
             "type": "main",
             "index": 0
           }
