@@ -232,6 +232,7 @@ echo ""
 # WEBHOOK REGISTRATION VERIFICATION
 # Source: https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/#activation
 # "After activating a workflow, n8n needs time to register webhooks"
+# FIXED: Увеличено время ожидания с 3 до 10 секунд
 # ══════════════════════════════════════════════════════════════════
 
 if [ $FAILED -eq 0 ] && [ $IMPORTED -gt 0 ]; then
@@ -252,8 +253,8 @@ if [ $FAILED -eq 0 ] && [ $IMPORTED -gt 0 ]; then
       WEBHOOK_READY=true
       
       # Дополнительный буфер для полной инициализации
-      echo "⏳ Waiting 3 seconds for complete webhook initialization..."
-      sleep 3
+      echo "⏳ Waiting 10 seconds for complete webhook initialization..."
+      sleep 10
       break
     fi
     
