@@ -160,6 +160,9 @@ jobs:
           N8N_API_SECRET: ${{ secrets.N8N_API }}
           MODE: ${{ env.USE_PERSISTENT_N8N }}
         run: |
+          # Cleanup на exit
+          trap "rm -f /tmp/n8n-cookies.txt" EXIT
+          
           if [ "$MODE" == "true" ]; then
             # PERSISTENT: Use existing key
             if [ -z "$N8N_API_SECRET" ]; then
@@ -172,12 +175,61 @@ jobs:
             # EPHEMERAL: Auto-generate
             echo "🔑 Generating temporary API key..."
             
-            curl -s -c /tmp/n8n-cookies.txt \
-              -X POST "$N8N_URL/rest/login" \
-              -H "Content-Type: application/json" \
-              -d "{\"email\": \"$N8N_USER\", \"password\": \"$N8N_PASSWORD\"}" > /dev/null
+            # Wait for owner auth sync (timing issue fix)
+            echo "⏳ Waiting 5s for owner auth synchronization..."
+            sleep 5
             
-            API_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt \
+            # Login with retry
+            echo "🔐 Logging in to n8n (with retry)..."
+            LOGIN_SUCCESS=false
+            
+            for i in {1..5}; do
+              echo "  Attempt $i/5..."
+              
+              LOGIN_RESPONSE=$(curl --connect-timeout 5 --max-time 15 \
+                -s -c /tmp/n8n-cookies.txt \
+                -X POST "$N8N_URL/rest/login" \
+                -H "Content-Type: application/json" \
+                -d "{\"email\": \"$N8N_USER\", \"password\": \"$N8N_PASSWORD\"}")
+              
+              # Проверка успеха login
+              if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
+                LOGIN_SUCCESS=true
+                echo "  ✅ Login successful!"
+                break
+              fi
+              
+              if [ $i -lt 5 ]; then
+                echo "  ⚠️ Login failed, retrying in 3s..."
+                echo "  Response preview: ${LOGIN_RESPONSE:0:200}"
+                sleep 3
+              fi
+            done
+            
+            # Проверка финального статуса
+            if [ "$LOGIN_SUCCESS" = false ]; then
+              echo "❌ Login failed after 5 attempts"
+              echo "Final response: ${LOGIN_RESPONSE:0:500}"
+              exit 1
+            fi
+            
+            # Валидация cookie файла
+            if [ ! -f "/tmp/n8n-cookies.txt" ] || [ ! -s "/tmp/n8n-cookies.txt" ]; then
+              echo "❌ Cookie file not created or empty!"
+              exit 1
+            fi
+            
+            # Опциональная проверка содержимого cookie
+            if ! grep -q "n8n-auth" /tmp/n8n-cookies.txt; then
+              echo "⚠️ Warning: n8n-auth cookie not found in file"
+            fi
+            
+            echo "✅ Session cookie saved"
+            
+            # Generate API key
+            echo "🔑 Creating API key..."
+            API_RESPONSE=$(curl --connect-timeout 5 --max-time 15 \
+              -s -b /tmp/n8n-cookies.txt \
               -X POST "$N8N_URL/rest/api-keys" \
               -H "Content-Type: application/json" \
               -d '{"label": "CI Ephemeral Key"}')
@@ -188,12 +240,12 @@ jobs:
               echo "✅ Generated: ${API_KEY:0:20}..."
               echo "N8N_API_KEY=$API_KEY" >> $GITHUB_ENV
             else
-              echo "❌ Failed to generate"
-              echo "Response: $API_RESPONSE"
+              echo "❌ Failed to generate API key"
+              echo "Response: ${API_RESPONSE:0:500}"
               exit 1
             fi
             
-            rm -f /tmp/n8n-cookies.txt
+            # Cookie cleanup (trap уже установлен)
           fi
         timeout-minutes: 2
       
