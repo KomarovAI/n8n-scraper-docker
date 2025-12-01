@@ -228,13 +228,13 @@ jobs:
             
             echo "✅ Session cookie saved"
             
-            # Generate API key
+            # Generate API key with required scopes (n8n v1.82+ breaking change)
             echo "🔑 Creating API key..."
             API_RESPONSE=$(curl --connect-timeout 5 --max-time 15 \
               -s -b /tmp/n8n-cookies.txt \
               -X POST "$N8N_URL/rest/api-keys" \
               -H "Content-Type: application/json" \
-              -d '{"label": "CI Ephemeral Key"}')
+              -d '{"label": "CI Ephemeral Key", "scopes": ["workflow:read", "workflow:write", "workflow:execute", "execution:read", "credential:read"]}')
             
             API_KEY=$(echo "$API_RESPONSE" | jq -r '.apiKey')
             
