@@ -1,15 +1,34 @@
-name: 2 n8n Validation (Self-Hosted)
+name: 2 n8n Validation (Hybrid Mode)
 
 on:
-  # 🔥 АВТОМАТИЧЕСКИЙ ЗАПУСК ПАРАЛЛЕЛЬНО С WORKFLOW 1
+  # 🔥 АВТОМАТИЧЕСКИЙ ЗАПУСК (Ephemeral режим)
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  # Manual trigger
+  
+  # Manual trigger с выбором режима
   workflow_dispatch:
-  # Вызов из других workflow (оставляем для совместимости)
+    inputs:
+      use_persistent_n8n:
+        description: '🔧 Use persistent n8n (for debugging only)'
+        required: false
+        type: boolean
+        default: false
+      skip_cleanup:
+        description: '🗑️ Skip cleanup (keep containers running)'
+        required: false
+        type: boolean
+        default: false
+  
+  # Вызов из других workflow
   workflow_call:
+    inputs:
+      use_persistent_n8n:
+        description: 'Use persistent n8n'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: n8n-validation-${{ github.ref }}
@@ -18,283 +37,108 @@ concurrency:
 env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
-  # Centralized logs directory
   LOGS_DIR: /tmp/validation-logs
-  # ✅ BEST PRACTICE: Unique project name per run (prevents container conflicts)
   COMPOSE_PROJECT_NAME: n8n-ci-${{ github.run_id }}
+  # ✅ HYBRID MODE: Ephemeral (default) or Persistent (manual debug)
+  USE_PERSISTENT_N8N: ${{ inputs.use_persistent_n8n || false }}
+  SKIP_CLEANUP: ${{ inputs.skip_cleanup || false }}
 
 jobs:
-  essential-tests:
-    name: Essential Tests
-    runs-on: self-hosted  # ← ТВОЙ RUNNER artikk!
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        test:
-          - { name: "Health", slug: "health", script: "tests/essential/test_health.sh", services: "n8n", monitoring: "prometheus grafana" }
-          - { name: "Workflow", slug: "workflow", script: "tests/essential/test_workflow.sh", services: "n8n", monitoring: "" }
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v6
-      
-      # ✅ BEST PRACTICE: Preflight cleanup (prevents container name conflicts)
-      - name: 🧹 Preflight Docker cleanup
-        run: |
-          echo "🔍 Cleaning up leftover containers from previous runs..."
-          # Stop and remove containers matching project prefix
-          docker ps -aq --filter "name=n8n-" | xargs -r docker rm -f || true
-          
-          # Remove volumes for this project
-          docker volume ls -q --filter "name=n8n-scraper-docker" | xargs -r docker volume rm || true
-          
-          # Prune dangling networks
-          docker network prune -f || true
-          
-          echo "✅ Preflight cleanup complete"
-      
-      - name: ⏱️ Start timer
-        id: timer
-        run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
-      
-      - name: 📝 Create .env from secrets
-        run: |
-          cat > .env << EOF
-          # Database & Cache
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
-          
-          # n8n Owner Setup (Automated) - USING EXISTING SECRETS
-          N8N_USER=${{ secrets.N8N_USER_CI }}
-          N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          
-          # n8n API Authentication (Manual - created once)
-          # ✅ FIXED: Use N8N_API (matches existing secret name)
-          N8N_API_KEY=${{ secrets.N8N_API }}
-          
-          # Tor Control
-          TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
-          
-          # Monitoring
-          GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
-          GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
-          
-          # Optional API Keys
-          FIRECRAWL_API_KEY=
-          JINA_API_KEY=
-          EOF
-          echo "✅ .env file created from GitHub Secrets"
-      
-      - name: 🏭 Build image (with cache)
-        run: |
-          docker build \
-            -t n8n-enhanced:test \
-            -f Dockerfile.n8n-enhanced \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
-            .
-      
-      - name: 🚀 Start services
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
-          sleep 12
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d ${{ matrix.test.services }}
-      
-      # ✅ IMPROVED: Two-stage wait with /healthz and /healthz/readiness
-      - name: ⏳ Wait for n8n full readiness
-        run: |
-          echo "⏳ Stage 1: Waiting for n8n process to start (/healthz)..."
-          for i in {1..90}; do
-            if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
-              echo "✅ n8n process is running"
-              break
-            fi
-            [ $i -eq 90 ] && echo "❌ n8n healthcheck timeout" && exit 1
-            [ $((i % 10)) -eq 0 ] && docker compose -f docker-compose.yml -f docker-compose.ci.yml ps n8n postgres redis 2>/dev/null || true
-            sleep 1
-          done
-          
-          echo "⏳ Stage 2: Waiting for DB connection + migrations (/healthz/readiness)..."
-          for i in {1..60}; do
-            READINESS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz/readiness)
-            if [ "$READINESS_CODE" == "200" ]; then
-              echo "✅ n8n is fully ready (DB connected + migrated)"
-              break
-            fi
-            [ $i -eq 60 ] && echo "❌ n8n readiness timeout" && docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n && exit 1
-            [ $((i % 10)) -eq 0 ] && echo "  Readiness check: HTTP $READINESS_CODE (attempt $i/60)"
-            sleep 2
-          done
-          
-          echo "⏳ Stage 3: Additional 10s buffer for API endpoint initialization..."
-          sleep 10
-          
-          echo "✅ n8n is ready for API calls"
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
-      
-      - name: 📊 Start monitoring stack
-        if: matrix.test.monitoring != ''
-        run: |
-          echo "Starting monitoring services: ${{ matrix.test.monitoring }}"
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d ${{ matrix.test.monitoring }}
-          sleep 5
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
-      
-      - name: 🧪 Run test
-        id: test
-        run: |
-          chmod +x ${{ matrix.test.script }}
-          bash ${{ matrix.test.script }}
-        continue-on-error: true
-      
-      - name: 💾 Save metrics only
-        if: always()
-        run: |
-          mkdir -p ${{ env.LOGS_DIR }}
-          END_TIME=$(date +%s)
-          START_TIME=${{ steps.timer.outputs.start_time }}
-          DURATION=$((END_TIME - START_TIME))
-          
-          # ✅ FIXED: Renamed 'end' to 'end_time' (jq reserved keyword)
-          jq -n \
-            --arg job "essential-${{ matrix.test.slug }}" \
-            --arg test_name "${{ matrix.test.name }}" \
-            --arg status "${{ job.status }}" \
-            --argjson start "$START_TIME" \
-            --argjson end_time "$END_TIME" \
-            --argjson duration "$DURATION" \
-            --arg exit_code "${{ steps.test.outcome }}" \
-            '{
-              job: $job,
-              test_name: $test_name,
-              status: $status,
-              start_time: $start,
-              end_time: $end_time,
-              duration_seconds: $duration,
-              exit_code: $exit_code
-            }' > ${{ env.LOGS_DIR }}/essential-${{ matrix.test.slug }}.json
-      
-      - name: 📋 Save n8n logs on failure
-        if: failure()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n | gzip > ${{ env.LOGS_DIR }}/essential-${{ matrix.test.slug }}-n8n.log.gz
-      
-      - name: 📤 Upload metrics
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: metrics-essential-${{ matrix.test.slug }}
-          path: ${{ env.LOGS_DIR }}/*.json
-          retention-days: 3
-          compression-level: 9
-      
-      - name: 📤 Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: logs-essential-${{ matrix.test.slug }}
-          path: ${{ env.LOGS_DIR }}/*.log.gz
-          retention-days: 3
-          compression-level: 0
-      
-      # ✅ BEST PRACTICE: Cleanup with timeout
-      - name: 🧹 Cleanup
-        if: always()
-        timeout-minutes: 5
-        run: |
-          echo "Starting cleanup at $(date)"
-          [ ! -f .env ] && touch .env
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans || true
-          rm -rf ${{ env.LOGS_DIR }}
-          echo "Cleanup completed at $(date)"
-
   n8n-workflow-tests:
-    name: n8n Workflow Tests
-    runs-on: self-hosted  # ← ТВОЙ RUNNER artikk!
+    name: Workflow Tests (${{ inputs.use_persistent_n8n && 'Persistent' || 'Ephemeral' }})
+    runs-on: self-hosted
     timeout-minutes: 15
-    outputs:
-      duration: ${{ steps.save.outputs.duration }}
-      passed: ${{ steps.parse.outputs.PASSED }}
-      failed: ${{ steps.parse.outputs.FAILED }}
-      success_rate: ${{ steps.parse.outputs.SUCCESS_RATE }}
+    
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
       
-      # ✅ BEST PRACTICE: Preflight cleanup
-      - name: 🧹 Preflight Docker cleanup
+      # =====================================================================
+      # CONDITIONAL: Ephemeral mode full setup
+      # =====================================================================
+      - name: 🧹 Preflight cleanup (Ephemeral mode)
+        if: env.USE_PERSISTENT_N8N == 'false'
         run: |
-          echo "🔍 Cleaning up leftover containers from previous runs..."
+          echo "🔍 Cleaning up leftover containers..."
           docker ps -aq --filter "name=n8n-" | xargs -r docker rm -f || true
           docker volume ls -q --filter "name=n8n-scraper-docker" | xargs -r docker volume rm || true
           docker network prune -f || true
-          echo "✅ Preflight cleanup complete"
+          echo "✅ Cleanup complete"
       
       - name: ⏱️ Start timer
         id: timer
         run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
       
-      - name: 📝 Create .env from secrets
+      - name: 📝 Create .env (Ephemeral mode)
+        if: env.USE_PERSISTENT_N8N == 'false'
         run: |
           cat > .env << EOF
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_CI }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD_CI }}
           N8N_USER=${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD=${{ secrets.N8N_PASSWORD_CI }}
-          # ✅ FIXED: Use N8N_API instead of N8N_API_KEY
-          N8N_API_KEY=${{ secrets.N8N_API }}
           TOR_CONTROL_PASSWORD=${{ secrets.TOR_CONTROL_PASSWORD_CI }}
           GRAFANA_USER=${{ secrets.GRAFANA_USER_CI }}
           GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD_CI }}
           EOF
-          echo "✅ .env file created from GitHub Secrets"
       
-      - name: 🏭 Build image (with cache)
+      - name: 🏭 Build image (Ephemeral mode)
+        if: env.USE_PERSISTENT_N8N == 'false'
         run: |
-          docker build \
-            -t n8n-enhanced:test \
-            -f Dockerfile.n8n-enhanced \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
-            .
+          docker build -t n8n-enhanced:test -f Dockerfile.n8n-enhanced --build-arg BUILDKIT_INLINE_CACHE=1 .
       
-      - name: 🚀 Start n8n stack
+      - name: 🚀 Start n8n stack (Ephemeral mode)
+        if: env.USE_PERSISTENT_N8N == 'false'
         run: |
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis
           sleep 12
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d n8n
       
-      # ✅ IMPROVED: Two-stage wait with /healthz and /healthz/readiness
-      - name: ⏳ Wait for n8n full readiness
+      # =====================================================================
+      # CONDITIONAL: Persistent mode validation
+      # =====================================================================
+      - name: 🔍 Check persistent n8n (Persistent mode)
+        if: env.USE_PERSISTENT_N8N == 'true'
         run: |
-          echo "⏳ Stage 1: Waiting for n8n process to start (/healthz)..."
+          if ! curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+            echo "❌ Persistent n8n not running!"
+            echo "Run: bash setup-persistent-n8n.sh"
+            exit 1
+          fi
+          echo "✅ Connected to persistent n8n"
+      
+      # =====================================================================
+      # UNIVERSAL: Wait for readiness
+      # =====================================================================
+      - name: ⏳ Wait for n8n readiness
+        run: |
           for i in {1..90}; do
             if curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
-              echo "✅ n8n process is running"
+              echo "✅ n8n process ready"
               break
             fi
-            [ $i -eq 90 ] && echo "❌ n8n healthcheck timeout" && exit 1
-            [ $((i % 15)) -eq 0 ] && docker compose -f docker-compose.yml -f docker-compose.ci.yml ps n8n postgres redis 2>/dev/null || true
+            [ $i -eq 90 ] && echo "❌ Timeout" && exit 1
             sleep 1
           done
           
-          echo "⏳ Stage 2: Waiting for DB connection + migrations (/healthz/readiness)..."
           for i in {1..60}; do
-            READINESS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz/readiness)
-            if [ "$READINESS_CODE" == "200" ]; then
-              echo "✅ n8n is fully ready (DB connected + migrated)"
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5678/healthz/readiness)
+            if [ "$CODE" == "200" ]; then
+              echo "✅ n8n fully ready"
               break
             fi
-            [ $i -eq 60 ] && echo "❌ n8n readiness timeout" && docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100 n8n && exit 1
-            [ $((i % 10)) -eq 0 ] && echo "  Readiness check: HTTP $READINESS_CODE (attempt $i/60)"
+            [ $i -eq 60 ] && echo "❌ Readiness timeout" && exit 1
             sleep 2
           done
           
-          echo "⏳ Stage 3: Additional 10s buffer for API endpoint initialization..."
           sleep 10
-          
-          echo "✅ n8n is ready for API calls"
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
+          echo "✅ Ready for workflow tests"
       
-      - name: 🔧 Setup n8n owner (Automated)
+      # =====================================================================
+      # CONDITIONAL: Setup owner (Ephemeral mode only)
+      # =====================================================================
+      - name: 🔧 Setup owner (Ephemeral mode)
+        if: env.USE_PERSISTENT_N8N == 'false'
         env:
           N8N_URL: "http://localhost:5678"
           N8N_USER: ${{ secrets.N8N_USER_CI }}
@@ -302,93 +146,71 @@ jobs:
         run: |
           chmod +x scripts/setup-n8n-owner.sh
           bash scripts/setup-n8n-owner.sh
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Owner setup failed"
-            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n
-            exit $EXIT_CODE
-          fi
         timeout-minutes: 3
-        continue-on-error: false
       
-      # ✅ NEW: Auto-generate API key if N8N_API secret is not set
-      - name: 🔑 Generate API Key (if needed)
+      # =====================================================================
+      # HYBRID: API Key handling
+      # =====================================================================
+      - name: 🔑 Setup API Key
         id: api_key
         env:
           N8N_URL: "http://localhost:5678"
           N8N_USER: ${{ secrets.N8N_USER_CI }}
           N8N_PASSWORD: ${{ secrets.N8N_PASSWORD_CI }}
           N8N_API_SECRET: ${{ secrets.N8N_API }}
+          MODE: ${{ env.USE_PERSISTENT_N8N }}
         run: |
-          if [ -z "$N8N_API_SECRET" ]; then
-            echo "⚠️  N8N_API secret not found, generating temporary API key..."
+          if [ "$MODE" == "true" ]; then
+            # PERSISTENT: Use existing key
+            if [ -z "$N8N_API_SECRET" ]; then
+              echo "❌ N8N_API secret required!"
+              exit 1
+            fi
+            echo "✅ Using persistent API key"
+            echo "N8N_API_KEY=$N8N_API_SECRET" >> $GITHUB_ENV
+          else
+            # EPHEMERAL: Auto-generate
+            echo "🔑 Generating temporary API key..."
             
-            # Login and get cookie
             curl -s -c /tmp/n8n-cookies.txt \
               -X POST "$N8N_URL/rest/login" \
               -H "Content-Type: application/json" \
               -d "{\"email\": \"$N8N_USER\", \"password\": \"$N8N_PASSWORD\"}" > /dev/null
             
-            # Create API key
-            API_KEY_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt \
+            API_RESPONSE=$(curl -s -b /tmp/n8n-cookies.txt \
               -X POST "$N8N_URL/rest/api-keys" \
               -H "Content-Type: application/json" \
-              -d '{"label": "CI Temporary Key"}')
+              -d '{"label": "CI Ephemeral Key"}')
             
-            API_KEY=$(echo "$API_KEY_RESPONSE" | jq -r '.apiKey')
+            API_KEY=$(echo "$API_RESPONSE" | jq -r '.apiKey')
             
             if [ "$API_KEY" != "null" ] && [ -n "$API_KEY" ]; then
-              echo "✅ API Key generated: ${API_KEY:0:20}..."
+              echo "✅ Generated: ${API_KEY:0:20}..."
               echo "N8N_API_KEY=$API_KEY" >> $GITHUB_ENV
             else
-              echo "❌ Failed to generate API key"
-              echo "Response: $API_KEY_RESPONSE"
+              echo "❌ Failed to generate"
+              echo "Response: $API_RESPONSE"
               exit 1
             fi
             
             rm -f /tmp/n8n-cookies.txt
-          else
-            echo "✅ Using N8N_API from secrets"
-            echo "N8N_API_KEY=$N8N_API_SECRET" >> $GITHUB_ENV
           fi
         timeout-minutes: 2
       
-      - name: 📦 Initialize workflows with API Key
+      - name: 📦 Initialize workflows
         env:
           N8N_URL: "http://localhost:5678"
-          # ✅ Use either generated or stored API key
           N8N_API_KEY: ${{ env.N8N_API_KEY }}
           WORKFLOWS_DIR: "workflows"
         run: |
           chmod +x scripts/init-workflows-api-key.sh
           bash scripts/init-workflows-api-key.sh
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Workflow initialization failed"
-            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n
-            exit $EXIT_CODE
-          fi
         timeout-minutes: 5
       
-      - name: 🔍 Verify webhook status
-        env:
-          N8N_URL: "http://localhost:5678"
-          N8N_CONTAINER: "n8n-app"
-          DB_CONTAINER: "postgres"
-          DB_NAME: "n8n"
-          DB_USER: "n8n"
-        run: |
-          chmod +x scripts/debug-webhook-status.sh
-          bash scripts/debug-webhook-status.sh
-        continue-on-error: true
-        timeout-minutes: 2
-      
-      - name: 🧪 Test n8n workflows
+      - name: 🧪 Test workflows
         id: test
         env:
           N8N_URL: "http://localhost:5678"
-          N8N_USER: ""
-          N8N_PASSWORD: ""
           WEBHOOK_PATH: "/webhook/scrape"
           TEST_TIMEOUT: "30"
           REPORT_FILE: "${{ env.LOGS_DIR }}/workflow-results.json"
@@ -396,193 +218,37 @@ jobs:
           chmod +x scripts/test-n8n-workflows.sh
           mkdir -p ${{ env.LOGS_DIR }}
           bash scripts/test-n8n-workflows.sh
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Workflow tests failed"
-            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=200 n8n
-            exit $EXIT_CODE
-          fi
         timeout-minutes: 8
       
-      - name: 📊 Parse test results
+      - name: 📊 Parse results
         id: parse
         if: always()
         run: |
-          REPORT_FILE="${{ env.LOGS_DIR }}/workflow-results.json"
-          if [ -f "$REPORT_FILE" ]; then
-            PASSED=$(jq -r '.summary.passed' "$REPORT_FILE")
-            FAILED=$(jq -r '.summary.failed' "$REPORT_FILE")
-            SUCCESS_RATE=$(jq -r '.summary.success_rate' "$REPORT_FILE")
-            echo "PASSED=$PASSED" >> $GITHUB_OUTPUT
-            echo "FAILED=$FAILED" >> $GITHUB_OUTPUT
-            echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_OUTPUT
+          REPORT="${{ env.LOGS_DIR }}/workflow-results.json"
+          if [ -f "$REPORT" ]; then
+            echo "PASSED=$(jq -r '.summary.passed' "$REPORT")" >> $GITHUB_OUTPUT
+            echo "FAILED=$(jq -r '.summary.failed' "$REPORT")" >> $GITHUB_OUTPUT
+            echo "SUCCESS_RATE=$(jq -r '.summary.success_rate' "$REPORT")" >> $GITHUB_OUTPUT
           else
             echo "PASSED=0" >> $GITHUB_OUTPUT
             echo "FAILED=0" >> $GITHUB_OUTPUT
             echo "SUCCESS_RATE=0" >> $GITHUB_OUTPUT
           fi
       
-      - name: 💾 Save metrics
-        id: save
-        if: always()
-        run: |
-          mkdir -p ${{ env.LOGS_DIR }}
-          END_TIME=$(date +%s)
-          START_TIME=${{ steps.timer.outputs.start_time }}
-          DURATION=$((END_TIME - START_TIME))
-          
-          echo "duration=$DURATION" >> $GITHUB_OUTPUT
-          echo "passed=${{ steps.parse.outputs.PASSED }}" >> $GITHUB_OUTPUT
-          echo "failed=${{ steps.parse.outputs.FAILED }}" >> $GITHUB_OUTPUT
-          echo "success_rate=${{ steps.parse.outputs.SUCCESS_RATE }}" >> $GITHUB_OUTPUT
-          
-          # ✅ FIXED: Renamed 'end' to 'end_time' (jq reserved keyword)
-          jq -n \
-            --arg job "n8n-workflows" \
-            --arg status "${{ job.status }}" \
-            --argjson start "$START_TIME" \
-            --argjson end_time "$END_TIME" \
-            --argjson duration "$DURATION" \
-            --arg exit_code "${{ steps.test.outcome }}" \
-            --argjson passed "${{ steps.parse.outputs.PASSED }}" \
-            --argjson failed "${{ steps.parse.outputs.FAILED }}" \
-            --argjson success_rate "${{ steps.parse.outputs.SUCCESS_RATE }}" \
-            '{
-              job: $job,
-              status: $status,
-              start_time: $start,
-              end_time: $end_time,
-              duration_seconds: $duration,
-              exit_code: $exit_code,
-              passed: $passed,
-              failed: $failed,
-              success_rate: $success_rate
-            }' > ${{ env.LOGS_DIR }}/workflows-metrics.json
-      
-      - name: 📋 Save n8n logs on failure
-        if: failure()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=300 n8n | gzip > ${{ env.LOGS_DIR }}/workflows-n8n.log.gz
-      
-      - name: 📤 Upload metrics
+      - name: 📤 Upload artifacts
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: metrics-workflows
-          path: ${{ env.LOGS_DIR }}/*.json
+          name: workflow-results
+          path: ${{ env.LOGS_DIR }}/*
           retention-days: 3
-          compression-level: 9
       
-      - name: 📤 Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: logs-workflows
-          path: ${{ env.LOGS_DIR }}/*.log.gz
-          retention-days: 3
-          compression-level: 0
-      
-      # ✅ BEST PRACTICE: Cleanup with timeout
-      - name: 🧹 Cleanup
-        if: always()
+      # =====================================================================
+      # CONDITIONAL: Cleanup (Ephemeral mode only)
+      # =====================================================================
+      - name: 🧹 Cleanup (Ephemeral mode)
+        if: always() && env.USE_PERSISTENT_N8N == 'false' && env.SKIP_CLEANUP == 'false'
         timeout-minutes: 5
         run: |
-          echo "Starting cleanup at $(date)"
-          [ ! -f .env ] && touch .env
           docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans || true
           rm -rf ${{ env.LOGS_DIR }}
-          echo "Cleanup completed at $(date)"
-
-  summary:
-    name: n8n Validation Summary
-    runs-on: self-hosted  # ← ТВОЙ RUNNER artikk!
-    needs: [essential-tests, n8n-workflow-tests]
-    if: always()
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v6
-      
-      - name: 📥 Download metrics only
-        uses: actions/download-artifact@v6
-        with:
-          pattern: metrics-*
-          path: metrics/
-          merge-multiple: true
-        continue-on-error: true
-      
-      - name: 📊 Generate consolidated report
-        run: |
-          mkdir -p final-report
-          
-          jq -s '.' metrics/*.json > final-report/validation-report.json 2>/dev/null || echo '[]' > final-report/validation-report.json
-          
-          HEALTH_EXIT=$(jq -r '.[] | select(.job == "essential-health") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
-          HEALTH_DURATION=$(jq -r '.[] | select(.job == "essential-health") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
-          
-          WORKFLOW_EXIT=$(jq -r '.[] | select(.job == "essential-workflow") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
-          WORKFLOW_DURATION=$(jq -r '.[] | select(.job == "essential-workflow") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
-          
-          N8N_EXIT=$(jq -r '.[] | select(.job == "n8n-workflows") | .exit_code' final-report/validation-report.json 2>/dev/null || echo "unknown")
-          N8N_DURATION=$(jq -r '.[] | select(.job == "n8n-workflows") | .duration_seconds' final-report/validation-report.json 2>/dev/null || echo "0")
-          
-          get_emoji() {
-            case "$1" in
-              "success") echo "✅" ;;
-              "failure") echo "❌" ;;
-              "skipped") echo "⏭️" ;;
-              "cancelled") echo "🚫" ;;
-              *) echo "❓" ;;
-            esac
-          }
-          
-          HEALTH_EMOJI=$(get_emoji "$HEALTH_EXIT")
-          WORKFLOW_EMOJI=$(get_emoji "$WORKFLOW_EXIT")
-          N8N_EMOJI=$(get_emoji "$N8N_EXIT")
-          
-          cat > final-report/summary.md << EOF
-          # n8n Validation Summary (Self-Hosted Runner)
-          
-          **Test Results**:
-          - Essential Health: $HEALTH_EMOJI **$HEALTH_EXIT** (${HEALTH_DURATION}s)
-          - Essential Workflow: $WORKFLOW_EMOJI **$WORKFLOW_EXIT** (${WORKFLOW_DURATION}s)
-          - n8n Workflows: $N8N_EMOJI **$N8N_EXIT** (${N8N_DURATION}s)
-          
-          **Workflow Test Details**:
-          - Passed: ${{ needs.n8n-workflow-tests.outputs.passed }}
-          - Failed: ${{ needs.n8n-workflow-tests.outputs.failed }}
-          - Success Rate: ${{ needs.n8n-workflow-tests.outputs.success_rate }}%
-          
-          **Runner Info**:
-          - Type: Self-Hosted (artikk)
-          - Location: 192.168.0.105
-          - OS: Ubuntu 22.04.5 LTS
-          - Benefits: Faster execution, persistent cache, local access
-          
-          **Full metrics**: See \`validation-report.json\`
-          EOF
-          
-          echo "====================================="
-          echo "📊 n8n VALIDATION SUMMARY"
-          echo "====================================="
-          cat final-report/summary.md
-          echo ""
-          echo "====================================="
-          echo "📊 DETAILED METRICS"
-          echo "====================================="
-          jq '.' final-report/validation-report.json
-      
-      - name: 📤 Upload final report
-        uses: actions/upload-artifact@v5
-        with:
-          name: n8n-validation-summary
-          path: final-report/
-          retention-days: 7
-          compression-level: 9
-      
-      - name: 🧹 Cleanup intermediate artifacts
-        uses: geekyeggo/delete-artifact@v5
-        with:
-          name: |
-            metrics-*
-            logs-*
-          failOnError: false
