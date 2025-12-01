@@ -190,7 +190,7 @@ jobs:
                 -s -c /tmp/n8n-cookies.txt \
                 -X POST "$N8N_URL/rest/login" \
                 -H "Content-Type: application/json" \
-                -d "{\"email\": \"$N8N_USER\", \"password\": \"$N8N_PASSWORD\"}")
+                -d "{\"emailOrLdapLoginId\": \"$N8N_USER\", \"password\": \"$N8N_PASSWORD\"}")
               
               # Проверка успеха login
               if echo "$LOGIN_RESPONSE" | grep -qi '"id"'; then
@@ -219,9 +219,11 @@ jobs:
               exit 1
             fi
             
-            # Опциональная проверка содержимого cookie
+            # Проверка содержимого cookie (best practice from n8n community)
             if ! grep -q "n8n-auth" /tmp/n8n-cookies.txt; then
               echo "⚠️ Warning: n8n-auth cookie not found in file"
+              echo "Cookie file content (debug):"
+              cat /tmp/n8n-cookies.txt
             fi
             
             echo "✅ Session cookie saved"
