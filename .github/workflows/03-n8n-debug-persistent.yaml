@@ -1,0 +1,61 @@
+name: 3 n8n Debug (Persistent)
+
+# 🎯 ТОЛЬКО ДЛЯ DEBUGGING!
+# Использует persistent n8n на runner для быстрой отладки
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: '🧪 Test type'
+        required: true
+        type: choice
+        options:
+          - quick_health
+          - api_key
+          - webhooks
+          - workflows
+          - all
+
+jobs:
+  debug:
+    name: Debug Tests
+    runs-on: self-hosted
+    timeout-minutes: 10
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+      
+      - name: 🔍 Validate persistent n8n
+        run: |
+          if ! curl -sf http://localhost:5678/healthz > /dev/null 2>&1; then
+            echo "❌ Persistent n8n not running!"
+            echo "Run: bash setup-persistent-n8n.sh"
+            exit 1
+          fi
+          echo "✅ Connected to persistent n8n"
+      
+      - name: 🧪 Run tests
+        env:
+          N8N_URL: "http://localhost:5678"
+          N8N_API_KEY: ${{ secrets.N8N_API }}
+          TEST_TYPE: ${{ inputs.test_type }}
+        run: |
+          case "$TEST_TYPE" in
+            quick_health)
+              curl -sf $N8N_URL/healthz && curl -sf $N8N_URL/healthz/readiness
+              ;;
+            api_key)
+              curl -sf -H "X-N8N-API-KEY: $N8N_API_KEY" $N8N_URL/api/v1/workflows
+              ;;
+            webhooks)
+              curl -X POST $N8N_URL/webhook/scrape -H "Content-Type: application/json" -d '{"url": "https://example.com"}'
+              ;;
+            workflows)
+              curl -sf -H "X-N8N-API-KEY: $N8N_API_KEY" $N8N_URL/api/v1/workflows | jq '.'
+              ;;
+            all)
+              bash scripts/test-n8n-workflows.sh
+              ;;
+          esac
