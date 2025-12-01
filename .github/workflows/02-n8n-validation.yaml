@@ -228,15 +228,16 @@ jobs:
             
             echo "✅ Session cookie saved"
             
-            # Generate API key (Community Edition: NO scopes, Enterprise only)
-            # Community Edition keys automatically have full access
+            # Generate API key with minimal required scopes
+            # Community Edition: scopes field is REQUIRED but values may be ignored
+            # Using minimal scopes for CI operations: read + execute workflows
             # expiresAt: far future timestamp (effectively permanent for CI)
             echo "🔑 Creating API key..."
             API_RESPONSE=$(curl --connect-timeout 5 --max-time 15 \
               -s -b /tmp/n8n-cookies.txt \
               -X POST "$N8N_URL/rest/api-keys" \
               -H "Content-Type: application/json" \
-              -d '{"label": "CI Ephemeral Key", "expiresAt": 9999999999999}')
+              -d '{"label": "CI Ephemeral Key", "expiresAt": 9999999999999, "scopes": ["workflow:read", "workflow:execute"]}')
             
             API_KEY=$(echo "$API_RESPONSE" | jq -r '.apiKey')
             
