@@ -228,14 +228,15 @@ jobs:
             
             echo "✅ Session cookie saved"
             
-            # Generate API key with required fields (n8n v1.82+ breaking changes)
-            # expiresAt: 9999999999999 = far future timestamp (effectively permanent for CI)
+            # Generate API key (Community Edition: NO scopes, Enterprise only)
+            # Community Edition keys automatically have full access
+            # expiresAt: far future timestamp (effectively permanent for CI)
             echo "🔑 Creating API key..."
             API_RESPONSE=$(curl --connect-timeout 5 --max-time 15 \
               -s -b /tmp/n8n-cookies.txt \
               -X POST "$N8N_URL/rest/api-keys" \
               -H "Content-Type: application/json" \
-              -d '{"label": "CI Ephemeral Key", "scopes": ["workflow:read", "workflow:write", "workflow:execute", "execution:read", "credential:read"], "expiresAt": 9999999999999}')
+              -d '{"label": "CI Ephemeral Key", "expiresAt": 9999999999999}')
             
             API_KEY=$(echo "$API_RESPONSE" | jq -r '.apiKey')
             
