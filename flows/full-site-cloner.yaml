@@ -1,0 +1,726 @@
+id: full-site-cloner
+namespace: production
+
+description: |
+  Полное клонирование сайтов с сохранением всех ресурсов в MinIO и PostgreSQL.
+  Сохраняет HTML, CSS, JS, изображения, шрифты, формы для последующего объединения.
+
+inputs:
+  - id: siteUrl
+    type: STRING
+    defaults: https://quickservant.com
+    description: "Базовый URL сайта для клонирования"
+
+  - id: maxPages
+    type: INT
+    defaults: 100
+    description: "Максимальное количество страниц"
+
+  - id: concurrentPages
+    type: INT
+    defaults: 5
+    description: "Количество одновременно обрабатываемых страниц"
+
+  - id: downloadAssets
+    type: BOOLEAN
+    defaults: true
+    description: "Скачивать все ресурсы (изображения, CSS, JS)"
+
+variables:
+  userAgents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+tasks:
+  # ================== ИНИЦИАЛИЗАЦИЯ ==================
+  
+  - id: init_database
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: jdbc:postgresql://postgres:5432/kestra
+    username: kestra
+    password: k3str4_s3cr3t
+    sql: |
+      -- Таблица сайтов
+      CREATE TABLE IF NOT EXISTS sites (
+        id SERIAL PRIMARY KEY,
+        domain VARCHAR(255) UNIQUE NOT NULL,
+        base_url TEXT NOT NULL,
+        crawl_status VARCHAR(20) DEFAULT 'pending',
+        total_pages INT DEFAULT 0,
+        total_assets INT DEFAULT 0,
+        total_size_mb DECIMAL(10,2) DEFAULT 0,
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      
+      -- Таблица страниц
+      CREATE TABLE IF NOT EXISTS scraped_pages (
+        id SERIAL PRIMARY KEY,
+        site_id INT REFERENCES sites(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        html_content TEXT,
+        title TEXT,
+        meta_description TEXT,
+        meta_keywords TEXT,
+        forms JSONB,
+        internal_links JSONB,
+        external_links JSONB,
+        http_status INT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(site_id, url)
+      );
+      
+      -- Таблица ресурсов
+      CREATE TABLE IF NOT EXISTS assets (
+        id SERIAL PRIMARY KEY,
+        site_id INT REFERENCES sites(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        type VARCHAR(50),
+        mime_type VARCHAR(100),
+        storage_path TEXT,
+        file_size BIGINT,
+        file_hash VARCHAR(64),
+        original_filename TEXT,
+        download_status VARCHAR(20) DEFAULT 'pending',
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(site_id, url)
+      );
+      
+      -- Таблица связей
+      CREATE TABLE IF NOT EXISTS page_assets (
+        id SERIAL PRIMARY KEY,
+        page_id INT REFERENCES scraped_pages(id) ON DELETE CASCADE,
+        asset_id INT REFERENCES assets(id) ON DELETE CASCADE,
+        asset_context VARCHAR(50),
+        UNIQUE(page_id, asset_id, asset_context)
+      );
+      
+      -- Индексы
+      CREATE INDEX IF NOT EXISTS idx_scraped_pages_site ON scraped_pages(site_id);
+      CREATE INDEX IF NOT EXISTS idx_scraped_pages_url ON scraped_pages(url);
+      CREATE INDEX IF NOT EXISTS idx_assets_site ON assets(site_id);
+      CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(type);
+      CREATE INDEX IF NOT EXISTS idx_assets_hash ON assets(file_hash);
+      CREATE INDEX IF NOT EXISTS idx_page_assets_page ON page_assets(page_id);
+
+  - id: register_site
+    type: io.kestra.plugin.scripts.python.Script
+    script: |
+      import json
+      from urllib.parse import urlparse
+      
+      site_url = '{{ inputs.siteUrl }}'
+      parsed = urlparse(site_url)
+      domain = parsed.netloc.replace('www.', '')
+      base_url = f"{parsed.scheme}://{parsed.netloc}"
+      
+      result = {
+        'domain': domain,
+        'baseUrl': base_url,
+        'siteUrl': site_url
+      }
+      
+      print(json.dumps(result))
+
+  - id: create_site_record
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: jdbc:postgresql://postgres:5432/kestra
+    username: kestra
+    password: k3str4_s3cr3t
+    sql: |
+      INSERT INTO sites (domain, base_url, crawl_status, started_at)
+      VALUES (
+        '{{ json(outputs.register_site.vars.stdout).domain }}',
+        '{{ json(outputs.register_site.vars.stdout).baseUrl }}',
+        'in_progress',
+        NOW()
+      )
+      ON CONFLICT (domain) DO UPDATE SET
+        crawl_status = 'in_progress',
+        started_at = NOW()
+      RETURNING id;
+    fetchType: FETCH_ONE
+
+  # ================== PUPPETEER INITIAL SCRAPE ==================
+  
+  - id: initial_scrape
+    type: io.kestra.plugin.scripts.node.Script
+    description: "Полное извлечение HTML с рендерингом JavaScript"
+    beforeCommands:
+      - npm install puppeteer
+    retry:
+      type: exponential
+      maxAttempts: 3
+      interval: PT2S
+    script: |
+      const puppeteer = require('puppeteer');
+      const siteUrl = '{{ inputs.siteUrl }}';
+      
+      (async () => {
+        const browser = await puppeteer.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+          ]
+        });
+        
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+        await page.goto(siteUrl, { 
+          waitUntil: 'networkidle2', 
+          timeout: 30000 
+        });
+        
+        // Получение полного HTML после рендеринга
+        const html = await page.content();
+        
+        // Извлечение всех ресурсов из Network
+        const resources = await page.evaluate(() => {
+          const res = {
+            images: [],
+            css: [],
+            js: [],
+            fonts: []
+          };
+          
+          // Изображения
+          document.querySelectorAll('img[src]').forEach(img => {
+            res.images.push({ url: img.src, alt: img.alt || '' });
+          });
+          
+          // CSS
+          document.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
+            res.css.push({ url: link.href });
+          });
+          
+          // JavaScript
+          document.querySelectorAll('script[src]').forEach(script => {
+            res.js.push({ url: script.src });
+          });
+          
+          // Background images из computed styles
+          document.querySelectorAll('*').forEach(el => {
+            const bg = window.getComputedStyle(el).backgroundImage;
+            if (bg && bg !== 'none') {
+              const match = bg.match(/url\(['"]?([^'"]+)['"]?\)/);
+              if (match) {
+                res.images.push({ url: match[1], alt: '', type: 'background' });
+              }
+            }
+          });
+          
+          // Favicon
+          const favicon = document.querySelector('link[rel*="icon"]');
+          if (favicon) {
+            res.images.push({ url: favicon.href, alt: 'favicon', type: 'icon' });
+          }
+          
+          return res;
+        });
+        
+        await browser.close();
+        
+        console.log(JSON.stringify({
+          html: html,
+          resources: resources,
+          siteUrl: siteUrl,
+          timestamp: new Date().toISOString()
+        }));
+      })();
+
+  # ================== EXTRACT LINKS & RESOURCES ==================
+  
+  - id: extract_all_data
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Извлечение ссылок, форм, ресурсов из HTML"
+    beforeCommands:
+      - pip install beautifulsoup4 lxml
+    script: |
+      import json
+      import re
+      from urllib.parse import urljoin, urlparse
+      from bs4 import BeautifulSoup
+      
+      raw_output = '''{{ outputs.initial_scrape.vars.stdout }}'''
+      data = json.loads(raw_output)
+      
+      html = data['html']
+      site_url = data['siteUrl']
+      max_pages = {{ inputs.maxPages }}
+      site_id = {{ outputs.create_site_record.row.id }}
+      
+      soup = BeautifulSoup(html, 'lxml')
+      parsed_site = urlparse(site_url)
+      hostname = parsed_site.netloc.replace('www.', '')
+      base_url = f"{parsed_site.scheme}://{parsed_site.netloc}"
+      
+      # ===== ВНУТРЕННИЕ И ВНЕШНИЕ ССЫЛКИ =====
+      internal_links = []
+      external_links = []
+      urls_to_crawl = set([site_url])
+      
+      for a_tag in soup.find_all('a', href=True):
+        link = a_tag['href'].strip()
+        if link.startswith(('#', 'mailto:', 'tel:', 'javascript:')):
+          continue
+        
+        absolute_url = urljoin(site_url, link)
+        parsed_link = urlparse(absolute_url)
+        link_hostname = parsed_link.netloc.replace('www.', '')
+        
+        link_obj = {
+          'url': absolute_url,
+          'text': a_tag.get_text().strip()[:200],
+          'title': a_tag.get('title', '')
+        }
+        
+        if link_hostname == hostname:
+          internal_links.append(link_obj)
+          urls_to_crawl.add(absolute_url)
+        else:
+          external_links.append(link_obj)
+        
+        if len(urls_to_crawl) >= max_pages:
+          break
+      
+      # ===== ФОРМЫ =====
+      forms = []
+      for form in soup.find_all('form'):
+        form_data = {
+          'action': urljoin(site_url, form.get('action', '')),
+          'method': form.get('method', 'GET').upper(),
+          'id': form.get('id', ''),
+          'name': form.get('name', ''),
+          'inputs': []
+        }
+        
+        for input_tag in form.find_all(['input', 'select', 'textarea']):
+          input_data = {
+            'tag': input_tag.name,
+            'type': input_tag.get('type', 'text') if input_tag.name == 'input' else input_tag.name,
+            'name': input_tag.get('name', ''),
+            'id': input_tag.get('id', ''),
+            'value': input_tag.get('value', ''),
+            'placeholder': input_tag.get('placeholder', ''),
+            'required': input_tag.get('required') is not None
+          }
+          
+          if input_tag.name == 'select':
+            input_data['options'] = [
+              {'value': opt.get('value', ''), 'text': opt.get_text().strip()}
+              for opt in input_tag.find_all('option')
+            ]
+          
+          form_data['inputs'].append(input_data)
+        
+        forms.append(form_data)
+      
+      # ===== ВСЕ РЕСУРСЫ =====
+      resources_from_puppeteer = data.get('resources', {})
+      
+      # Дополнительное извлечение из HTML
+      all_images = list(resources_from_puppeteer.get('images', []))
+      all_css = list(resources_from_puppeteer.get('css', []))
+      all_js = list(resources_from_puppeteer.get('js', []))
+      all_fonts = []
+      
+      # CSS @import и fonts
+      for link in soup.find_all('link', rel='stylesheet'):
+        css_url = urljoin(site_url, link.get('href', ''))
+        if css_url not in [c['url'] for c in all_css]:
+          all_css.append({'url': css_url})
+      
+      # Inline styles с background-image
+      for tag in soup.find_all(style=True):
+        bg_matches = re.findall(r'url\(["\']?([^"\')]+)["\']?\)', tag['style'])
+        for bg_url in bg_matches:
+          full_url = urljoin(site_url, bg_url)
+          if full_url not in [img['url'] for img in all_images]:
+            all_images.append({'url': full_url, 'alt': '', 'type': 'inline_bg'})
+      
+      # Meta tags
+      title = soup.find('title')
+      meta_desc = soup.find('meta', attrs={'name': 'description'})
+      meta_keywords = soup.find('meta', attrs={'name': 'keywords'})
+      
+      result = {
+        'siteId': site_id,
+        'url': site_url,
+        'baseUrl': base_url,
+        'hostname': hostname,
+        'htmlContent': html,
+        'title': title.get_text().strip() if title else '',
+        'metaDescription': meta_desc.get('content', '') if meta_desc else '',
+        'metaKeywords': meta_keywords.get('content', '') if meta_keywords else '',
+        'forms': forms,
+        'internalLinks': internal_links[:500],
+        'externalLinks': external_links[:100],
+        'urlsToCrawl': list(urls_to_crawl)[:max_pages],
+        'resources': {
+          'images': all_images,
+          'css': all_css,
+          'js': all_js,
+          'fonts': all_fonts
+        }
+      }
+      
+      print(json.dumps(result))
+
+  # ================== SAVE INITIAL PAGE ==================
+  
+  - id: save_initial_page
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: jdbc:postgresql://postgres:5432/kestra
+    username: kestra
+    password: k3str4_s3cr3t
+    sql: |
+      INSERT INTO scraped_pages (
+        site_id, url, html_content, title, meta_description, meta_keywords,
+        forms, internal_links, external_links, http_status
+      ) VALUES (
+        {{ json(outputs.extract_all_data.vars.stdout).siteId }},
+        '{{ json(outputs.extract_all_data.vars.stdout).url }}',
+        '{{ json(outputs.extract_all_data.vars.stdout).htmlContent | replace("'", "''") }}',
+        '{{ json(outputs.extract_all_data.vars.stdout).title | replace("'", "''") }}',
+        '{{ json(outputs.extract_all_data.vars.stdout).metaDescription | replace("'", "''") }}',
+        '{{ json(outputs.extract_all_data.vars.stdout).metaKeywords | replace("'", "''") }}',
+        '{{ json(outputs.extract_all_data.vars.stdout).forms | dump }}'::jsonb,
+        '{{ json(outputs.extract_all_data.vars.stdout).internalLinks | dump }}'::jsonb,
+        '{{ json(outputs.extract_all_data.vars.stdout).externalLinks | dump }}'::jsonb,
+        200
+      )
+      ON CONFLICT (site_id, url) DO UPDATE SET
+        html_content = EXCLUDED.html_content,
+        title = EXCLUDED.title,
+        updated_at = NOW()
+      RETURNING id;
+    fetchType: FETCH_ONE
+
+  # ================== DOWNLOAD ASSETS ==================
+  
+  - id: download_all_assets
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Скачивание всех ресурсов и сохранение в MinIO"
+    runIf: "{{ inputs.downloadAssets }}"
+    beforeCommands:
+      - pip install requests minio
+    script: |
+      import json
+      import requests
+      import hashlib
+      import os
+      from urllib.parse import urljoin, urlparse
+      from minio import Minio
+      from io import BytesIO
+      
+      # MinIO клиент
+      minio_client = Minio(
+        'minio:9000',
+        access_key='minioadmin',
+        secret_key='minioadmin',
+        secure=False
+      )
+      
+      bucket_name = 'cloned-sites'
+      if not minio_client.bucket_exists(bucket_name):
+        minio_client.make_bucket(bucket_name)
+      
+      data = json.loads('''{{ outputs.extract_all_data.vars.stdout }}''')
+      site_id = data['siteId']
+      base_url = data['baseUrl']
+      resources = data['resources']
+      
+      downloaded_assets = []
+      
+      def download_asset(url, asset_type):
+        try:
+          full_url = urljoin(base_url, url)
+          response = requests.get(full_url, timeout=30, stream=True)
+          
+          if response.status_code != 200:
+            return None
+          
+          content = response.content
+          file_hash = hashlib.sha256(content).hexdigest()
+          
+          # Определение расширения
+          parsed = urlparse(full_url)
+          filename = parsed.path.split('/')[-1] or 'index.html'
+          if '.' not in filename:
+            ext_map = {
+              'image': '.jpg',
+              'css': '.css',
+              'js': '.js',
+              'font': '.woff2'
+            }
+            filename += ext_map.get(asset_type, '.bin')
+          
+          # Путь в MinIO
+          storage_path = f"site-{site_id}/{asset_type}s/{file_hash[:8]}_{filename}"
+          
+          # Загрузка в MinIO
+          minio_client.put_object(
+            bucket_name,
+            storage_path,
+            BytesIO(content),
+            length=len(content),
+            content_type=response.headers.get('Content-Type', 'application/octet-stream')
+          )
+          
+          return {
+            'url': full_url,
+            'type': asset_type,
+            'mimeType': response.headers.get('Content-Type', ''),
+            'storagePath': storage_path,
+            'fileSize': len(content),
+            'fileHash': file_hash,
+            'originalFilename': filename,
+            'downloadStatus': 'success'
+          }
+          
+        except Exception as e:
+          return {
+            'url': full_url,
+            'type': asset_type,
+            'downloadStatus': 'failed',
+            'errorMessage': str(e)
+          }
+      
+      # Скачивание изображений
+      for img in resources.get('images', [])[:100]:
+        asset = download_asset(img['url'], 'image')
+        if asset:
+          downloaded_assets.append(asset)
+      
+      # Скачивание CSS
+      for css in resources.get('css', [])[:50]:
+        asset = download_asset(css['url'], 'css')
+        if asset:
+          downloaded_assets.append(asset)
+      
+      # Скачивание JS
+      for js in resources.get('js', [])[:50]:
+        asset = download_asset(js['url'], 'js')
+        if asset:
+          downloaded_assets.append(asset)
+      
+      result = {
+        'siteId': site_id,
+        'downloadedAssets': downloaded_assets,
+        'totalDownloaded': len(downloaded_assets),
+        'totalSize': sum(a.get('fileSize', 0) for a in downloaded_assets if a.get('fileSize'))
+      }
+      
+      print(json.dumps(result))
+
+  - id: save_assets_to_db
+    type: io.kestra.plugin.scripts.python.Script
+    runIf: "{{ inputs.downloadAssets }}"
+    beforeCommands:
+      - pip install psycopg2-binary
+    script: |
+      import json
+      import psycopg2
+      
+      data = json.loads('''{{ outputs.download_all_assets.vars.stdout }}''')
+      site_id = data['siteId']
+      page_id = {{ outputs.save_initial_page.row.id }}
+      
+      conn = psycopg2.connect(
+        host='postgres',
+        port=5432,
+        database='kestra',
+        user='kestra',
+        password='k3str4_s3cr3t'
+      )
+      cursor = conn.cursor()
+      
+      for asset in data['downloadedAssets']:
+        cursor.execute("""
+          INSERT INTO assets (
+            site_id, url, type, mime_type, storage_path,
+            file_size, file_hash, original_filename, download_status, error_message
+          ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+          ON CONFLICT (site_id, url) DO UPDATE SET
+            storage_path = EXCLUDED.storage_path,
+            file_size = EXCLUDED.file_size,
+            download_status = EXCLUDED.download_status
+          RETURNING id;
+        """, (
+          site_id,
+          asset['url'],
+          asset['type'],
+          asset.get('mimeType', ''),
+          asset.get('storagePath', ''),
+          asset.get('fileSize', 0),
+          asset.get('fileHash', ''),
+          asset.get('originalFilename', ''),
+          asset['downloadStatus'],
+          asset.get('errorMessage', '')
+        ))
+        
+        asset_id = cursor.fetchone()[0]
+        
+        # Связь страницы и ресурса
+        cursor.execute("""
+          INSERT INTO page_assets (page_id, asset_id, asset_context)
+          VALUES (%s, %s, %s)
+          ON CONFLICT DO NOTHING;
+        """, (page_id, asset_id, asset['type']))
+      
+      conn.commit()
+      cursor.close()
+      conn.close()
+      
+      print(json.dumps({'saved': len(data['downloadedAssets'])}))
+
+  # ================== CRAWL REMAINING PAGES ==================
+  
+  - id: crawl_pages
+    type: io.kestra.plugin.core.flow.EachParallel
+    description: "Параллельный обход всех страниц"
+    concurrent: "{{ inputs.concurrentPages }}"
+    value: "{{ json(outputs.extract_all_data.vars.stdout).urlsToCrawl }}"
+    tasks:
+      - id: fetch_page
+        type: io.kestra.plugin.core.http.Request
+        uri: "{{ taskrun.value }}"
+        method: GET
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        options:
+          timeout: PT30S
+        retry:
+          type: exponential
+          maxAttempts: 3
+          interval: PT2S
+        continueOnError: true
+
+      - id: process_page
+        type: io.kestra.plugin.scripts.python.Script
+        runIf: "{{ outputs.fetch_page.code == 200 }}"
+        beforeCommands:
+          - pip install beautifulsoup4 lxml
+        script: |
+          import json
+          import re
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin
+          
+          html = '''{{ outputs.fetch_page.body }}'''
+          url = '{{ taskrun.value }}'
+          site_id = {{ outputs.create_site_record.row.id }}
+          
+          soup = BeautifulSoup(html, 'lxml')
+          
+          # Title & Meta
+          title = soup.find('title')
+          meta_desc = soup.find('meta', attrs={'name': 'description'})
+          
+          # Forms
+          forms = []
+          for form in soup.find_all('form'):
+            forms.append({
+              'action': urljoin(url, form.get('action', '')),
+              'method': form.get('method', 'GET').upper()
+            })
+          
+          result = {
+            'siteId': site_id,
+            'url': url,
+            'htmlContent': html[:100000],  # Ограничение 100KB
+            'title': title.get_text().strip() if title else '',
+            'metaDescription': meta_desc.get('content', '') if meta_desc else '',
+            'forms': forms
+          }
+          
+          print(json.dumps(result))
+
+      - id: save_page
+        type: io.kestra.plugin.jdbc.postgresql.Query
+        runIf: "{{ outputs.fetch_page.code == 200 }}"
+        url: jdbc:postgresql://postgres:5432/kestra
+        username: kestra
+        password: k3str4_s3cr3t
+        sql: |
+          INSERT INTO scraped_pages (
+            site_id, url, html_content, title, meta_description, forms, http_status
+          ) VALUES (
+            {{ json(outputs.process_page.vars.stdout).siteId }},
+            '{{ json(outputs.process_page.vars.stdout).url }}',
+            '{{ json(outputs.process_page.vars.stdout).htmlContent | replace("'", "''") }}',
+            '{{ json(outputs.process_page.vars.stdout).title | replace("'", "''") }}',
+            '{{ json(outputs.process_page.vars.stdout).metaDescription | replace("'", "''") }}',
+            '{{ json(outputs.process_page.vars.stdout).forms | dump }}'::jsonb,
+            200
+          )
+          ON CONFLICT (site_id, url) DO NOTHING;
+
+  # ================== FINAL STATISTICS ==================
+  
+  - id: update_site_stats
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: jdbc:postgresql://postgres:5432/kestra
+    username: kestra
+    password: k3str4_s3cr3t
+    sql: |
+      UPDATE sites SET
+        total_pages = (SELECT COUNT(*) FROM scraped_pages WHERE site_id = {{ outputs.create_site_record.row.id }}),
+        total_assets = (SELECT COUNT(*) FROM assets WHERE site_id = {{ outputs.create_site_record.row.id }}),
+        total_size_mb = (SELECT COALESCE(SUM(file_size), 0) / 1048576.0 FROM assets WHERE site_id = {{ outputs.create_site_record.row.id }}),
+        crawl_status = 'completed',
+        completed_at = NOW()
+      WHERE id = {{ outputs.create_site_record.row.id }};
+
+  - id: final_stats
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    url: jdbc:postgresql://postgres:5432/kestra
+    username: kestra
+    password: k3str4_s3cr3t
+    sql: |
+      SELECT 
+        s.domain,
+        s.total_pages,
+        s.total_assets,
+        s.total_size_mb,
+        COUNT(DISTINCT a.id) FILTER (WHERE a.type = 'image') as total_images,
+        COUNT(DISTINCT a.id) FILTER (WHERE a.type = 'css') as total_css,
+        COUNT(DISTINCT a.id) FILTER (WHERE a.type = 'js') as total_js,
+        COUNT(DISTINCT sp.id) FILTER (WHERE sp.forms IS NOT NULL) as pages_with_forms
+      FROM sites s
+      LEFT JOIN assets a ON a.site_id = s.id
+      LEFT JOIN scraped_pages sp ON sp.site_id = s.id
+      WHERE s.id = {{ outputs.create_site_record.row.id }}
+      GROUP BY s.id, s.domain, s.total_pages, s.total_assets, s.total_size_mb;
+    fetchType: FETCH_ONE
+
+  - id: log_completion
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      ✅ Полное клонирование завершено!
+      
+      📊 Статистика сайта {{ outputs.final_stats.row.domain }}:
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      📄 Страниц: {{ outputs.final_stats.row.total_pages }}
+      🗂️  Всего ресурсов: {{ outputs.final_stats.row.total_assets }}
+      🖼️  Изображений: {{ outputs.final_stats.row.total_images }}
+      🎨 CSS файлов: {{ outputs.final_stats.row.total_css }}
+      ⚙️  JS файлов: {{ outputs.final_stats.row.total_js }}
+      📝 Страниц с формами: {{ outputs.final_stats.row.pages_with_forms }}
+      💾 Общий размер: {{ outputs.final_stats.row.total_size_mb | round(2) }} MB
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      
+      📦 Данные сохранены:
+      - PostgreSQL: HTML, формы, метаданные
+      - MinIO bucket: cloned-sites/site-{{ outputs.create_site_record.row.id }}/
+
+errors:
+  - id: notify_failure
+    type: io.kestra.plugin.core.log.Log
+    message: "❌ Клонирование прервано: {{ task.error }}"
