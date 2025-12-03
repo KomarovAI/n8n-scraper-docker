@@ -39,6 +39,27 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # MinIO for object storage (images, CSS, JS, fonts)
+  minio:
+    image: minio/minio:latest
+    container_name: n8n-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web Console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
   # TOR proxy for anonymity
   tor:
     image: dperson/torproxy:latest
@@ -258,6 +279,8 @@ volumes:
   redis-data:
     driver: local
   postgres-data:
+    driver: local
+  minio-data:
     driver: local
   prometheus-data:
     driver: local
